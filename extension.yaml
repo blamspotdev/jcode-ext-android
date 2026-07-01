@@ -1,0 +1,150 @@
+id: jcode.pack.android
+name: Android Dev Pack
+publisher: jcode
+version: 0.1.0
+type: language
+description: Android XML + Gradle language support, helpers, and an Android app template.
+
+# A combined Android dev pack. Kotlin coloring/completion/formatting come from the
+# required Kotlin Language Pack (jcode.lang.kotlin); this pack adds Android XML +
+# Gradle languages and declares an Android app project template.
+requires:
+  extensions: [jcode.lang.kotlin]
+
+templates:
+  - android-app
+
+languages:
+  # ---------------------------------------------------------------- Android XML
+  - id: android-xml
+    extensions: [".xml"]
+    comment: { blockStart: "<!--", blockEnd: "-->" }
+    strings: ["\"", "'"]
+    keywords: [
+      LinearLayout, ConstraintLayout, FrameLayout, RelativeLayout, TextView, Button,
+      EditText, ImageView, RecyclerView, ScrollView,
+      "androidx.constraintlayout.widget.ConstraintLayout",
+      manifest, application, activity, "uses-permission", "intent-filter", action,
+      category, provider, service, receiver,
+      "android:layout_width", "android:layout_height", "android:id", "android:text",
+      "android:orientation", "android:gravity", "android:padding",
+      "android:layout_margin", "android:background", "android:textSize",
+      "android:textColor", "android:src", "android:visibility", "android:onClick"
+    ]
+    types: [
+      match_parent, wrap_content, fill_parent, "true", "false", vertical, horizontal,
+      center, center_vertical, center_horizontal, start, end, top, bottom, left, right,
+      visible, invisible, gone, "@+id", "@id", "@string", "@drawable", "@color",
+      "@dimen", "@style", "@mipmap", "@android:id", parent
+    ]
+    formatter: { indent: 4, trimTrailingWhitespace: true, insertFinalNewline: true }
+    completions:
+      - { label: textview, detail: TextView, insert: "<TextView\n    android:layout_width=\"wrap_content\"\n    android:layout_height=\"wrap_content\"\n    android:text=\"$0\" />" }
+      - { label: button, detail: Button, insert: "<Button\n    android:id=\"@+id/$1\"\n    android:layout_width=\"wrap_content\"\n    android:layout_height=\"wrap_content\"\n    android:text=\"$0\" />" }
+      - { label: constraint, detail: ConstraintLayout block, insert: "<androidx.constraintlayout.widget.ConstraintLayout\n    xmlns:android=\"http://schemas.android.com/apk/res/android\"\n    xmlns:app=\"http://schemas.android.com/apk/res-auto\"\n    android:layout_width=\"match_parent\"\n    android:layout_height=\"match_parent\">\n    $0\n</androidx.constraintlayout.widget.ConstraintLayout>" }
+      - { label: matchparent, detail: match_parent size, insert: "android:layout_width=\"match_parent\"\n    android:layout_height=\"match_parent\"$0" }
+      - { label: activity, detail: manifest <activity>, insert: "<activity\n    android:name=\".$1\"\n    android:exported=\"$2\">\n    $0\n</activity>" }
+      - { label: permission, detail: uses-permission, insert: "<uses-permission android:name=\"android.permission.$0\" />" }
+    helpers:
+      - title: activity_main.xml (ConstraintLayout)
+        snippet: |
+          <?xml version="1.0" encoding="utf-8"?>
+          <androidx.constraintlayout.widget.ConstraintLayout
+              xmlns:android="http://schemas.android.com/apk/res/android"
+              xmlns:app="http://schemas.android.com/apk/res-auto"
+              android:layout_width="match_parent"
+              android:layout_height="match_parent">
+
+              <TextView
+                  android:id="@+id/message"
+                  android:layout_width="wrap_content"
+                  android:layout_height="wrap_content"
+                  android:text="$0"
+                  app:layout_constraintBottom_toBottomOf="parent"
+                  app:layout_constraintEnd_toEndOf="parent"
+                  app:layout_constraintStart_toStartOf="parent"
+                  app:layout_constraintTop_toTopOf="parent" />
+
+          </androidx.constraintlayout.widget.ConstraintLayout>
+      - title: AndroidManifest.xml (minimal)
+        snippet: |
+          <?xml version="1.0" encoding="utf-8"?>
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+              <application
+                  android:allowBackup="true"
+                  android:label="$1"
+                  android:theme="@style/Theme.Material3.DayNight">
+                  <activity
+                      android:name=".MainActivity"
+                      android:exported="true">
+                      <intent-filter>
+                          <action android:name="android.intent.action.MAIN" />
+                          <category android:name="android.intent.category.LAUNCHER" />
+                      </intent-filter>
+                  </activity>
+              </application>
+
+          </manifest>
+
+  # ---------------------------------------------------------------- Gradle
+  - id: gradle
+    extensions: [".gradle"]
+    comment: { line: "//", blockStart: "/*", blockEnd: "*/" }
+    strings: ["\"", "'"]
+    keywords: [
+      plugins, id, apply, android, dependencies, implementation, testImplementation,
+      androidTestImplementation, api, compileOnly, runtimeOnly, buildTypes, release,
+      debug, defaultConfig, compileSdk, minSdk, targetSdk, applicationId, versionCode,
+      versionName, namespace, kotlinOptions, jvmTarget, compileOptions, sourceCompatibility,
+      targetCompatibility, buildFeatures, viewBinding, dataBinding, compose, repositories,
+      google, mavenCentral, task, ext, allprojects, subprojects, minifyEnabled,
+      proguardFiles
+    ]
+    types: []
+    formatter: { indent: 4, trimTrailingWhitespace: true, insertFinalNewline: true }
+    completions:
+      - { label: dependencies, detail: dependencies block, insert: "dependencies {\n    implementation(\"$1\")\n}" }
+      - { label: android, detail: android block, insert: "android {\n    namespace \"$1\"\n    compileSdk 34\n\n    defaultConfig {\n        applicationId \"$2\"\n        minSdk 24\n        targetSdk 34\n        versionCode 1\n        versionName \"1.0\"\n    }\n    $0\n}" }
+      - { label: plugins, detail: plugins block, insert: "plugins {\n    id(\"$1\")\n}" }
+      - { label: implementation, detail: implementation dependency, insert: "implementation(\"$0\")" }
+      - { label: defaultConfig, detail: defaultConfig block, insert: "defaultConfig {\n    applicationId \"$1\"\n    minSdk 24\n    targetSdk 34\n    versionCode 1\n    versionName \"1.0\"\n    $0\n}" }
+    helpers:
+      - title: android { } skeleton
+        snippet: |
+          android {
+              namespace "$1"
+              compileSdk 34
+
+              defaultConfig {
+                  applicationId "$2"
+                  minSdk 24
+                  targetSdk 34
+                  versionCode 1
+                  versionName "1.0"
+              }
+
+              buildTypes {
+                  release {
+                      minifyEnabled false
+                  }
+              }
+
+              compileOptions {
+                  sourceCompatibility JavaVersion.VERSION_17
+                  targetCompatibility JavaVersion.VERSION_17
+              }
+
+              kotlinOptions {
+                  jvmTarget = "17"
+              }
+          }
+      - title: dependencies { } block
+        snippet: |
+          dependencies {
+              implementation "androidx.core:core-ktx:1.13.1"
+              implementation "androidx.appcompat:appcompat:1.7.0"
+              implementation "com.google.android.material:material:1.12.0"
+              implementation "androidx.constraintlayout:constraintlayout:2.1.4"
+              $0
+          }

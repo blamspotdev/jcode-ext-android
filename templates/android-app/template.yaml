@@ -1,0 +1,189 @@
+id: android-app
+name: Android App
+description: >-
+  A minimal but real Kotlin Android app: a root Gradle build plus an :app module
+  with an AndroidManifest, a MainActivity, a ConstraintLayout screen, and a
+  "Build APK" task. Files are written directly into the project — there is no
+  interactive wizard. Building requires the Android SDK prerequisites (JDK,
+  Android SDK, and Gradle) to be configured in the runtime.
+requires:
+  - android-prereqs
+recipe:
+  - label: Create project layout
+    run: |
+      mkdir -p "{{projectDir}}/app/src/main/java/com/example/{{name}}"
+      mkdir -p "{{projectDir}}/app/src/main/res/layout"
+      mkdir -p "{{projectDir}}/app/src/main/res/values"
+      mkdir -p "{{projectDir}}/.jcode"
+
+  - label: Write settings.gradle.kts
+    run: |
+      cat > "{{projectDir}}/settings.gradle.kts" <<'EOF'
+      pluginManagement {
+          repositories {
+              google()
+              mavenCentral()
+              gradlePluginPortal()
+          }
+      }
+      dependencyResolutionManagement {
+          repositories {
+              google()
+              mavenCentral()
+          }
+      }
+
+      rootProject.name = "{{name}}"
+      include(":app")
+      EOF
+
+  - label: Write root build.gradle.kts
+    run: |
+      cat > "{{projectDir}}/build.gradle.kts" <<'EOF'
+      plugins {
+          id("com.android.application") version "8.5.0" apply false
+          id("org.jetbrains.kotlin.android") version "1.9.24" apply false
+      }
+      EOF
+
+  - label: Write gradle.properties
+    run: |
+      cat > "{{projectDir}}/gradle.properties" <<'EOF'
+      org.gradle.jvmargs=-Xmx2048m -Dfile.encoding=UTF-8
+      android.useAndroidX=true
+      kotlin.code.style=official
+      EOF
+
+  - label: Write app/build.gradle.kts
+    run: |
+      cat > "{{projectDir}}/app/build.gradle.kts" <<'EOF'
+      plugins {
+          id("com.android.application")
+          id("org.jetbrains.kotlin.android")
+      }
+
+      android {
+          namespace = "com.example.{{name}}"
+          compileSdk = 34
+
+          defaultConfig {
+              applicationId = "com.example.{{name}}"
+              minSdk = 24
+              targetSdk = 34
+              versionCode = 1
+              versionName = "1.0"
+          }
+
+          buildTypes {
+              release {
+                  isMinifyEnabled = false
+              }
+          }
+
+          compileOptions {
+              sourceCompatibility = JavaVersion.VERSION_17
+              targetCompatibility = JavaVersion.VERSION_17
+          }
+
+          kotlinOptions {
+              jvmTarget = "17"
+          }
+      }
+
+      dependencies {
+          implementation("androidx.core:core-ktx:1.13.1")
+          implementation("androidx.appcompat:appcompat:1.7.0")
+          implementation("com.google.android.material:material:1.12.0")
+          implementation("androidx.constraintlayout:constraintlayout:2.1.4")
+      }
+      EOF
+
+  - label: Write AndroidManifest.xml
+    run: |
+      cat > "{{projectDir}}/app/src/main/AndroidManifest.xml" <<'EOF'
+      <?xml version="1.0" encoding="utf-8"?>
+      <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+          <application
+              android:allowBackup="true"
+              android:label="@string/app_name"
+              android:supportsRtl="true"
+              android:theme="@style/Theme.Material3.DayNight">
+              <activity
+                  android:name=".MainActivity"
+                  android:exported="true">
+                  <intent-filter>
+                      <action android:name="android.intent.action.MAIN" />
+                      <category android:name="android.intent.category.LAUNCHER" />
+                  </intent-filter>
+              </activity>
+          </application>
+
+      </manifest>
+      EOF
+
+  - label: Write MainActivity.kt
+    run: |
+      cat > "{{projectDir}}/app/src/main/java/com/example/{{name}}/MainActivity.kt" <<'EOF'
+      package com.example.{{name}}
+
+      import android.os.Bundle
+      import androidx.appcompat.app.AppCompatActivity
+
+      class MainActivity : AppCompatActivity() {
+          override fun onCreate(savedInstanceState: Bundle?) {
+              super.onCreate(savedInstanceState)
+              setContentView(R.layout.activity_main)
+          }
+      }
+      EOF
+
+  - label: Write res/layout/activity_main.xml
+    run: |
+      cat > "{{projectDir}}/app/src/main/res/layout/activity_main.xml" <<'EOF'
+      <?xml version="1.0" encoding="utf-8"?>
+      <androidx.constraintlayout.widget.ConstraintLayout
+          xmlns:android="http://schemas.android.com/apk/res/android"
+          xmlns:app="http://schemas.android.com/apk/res-auto"
+          android:layout_width="match_parent"
+          android:layout_height="match_parent">
+
+          <TextView
+              android:id="@+id/message"
+              android:layout_width="wrap_content"
+              android:layout_height="wrap_content"
+              android:text="Hello, Android!"
+              android:textSize="20sp"
+              app:layout_constraintBottom_toBottomOf="parent"
+              app:layout_constraintEnd_toEndOf="parent"
+              app:layout_constraintStart_toStartOf="parent"
+              app:layout_constraintTop_toTopOf="parent" />
+
+      </androidx.constraintlayout.widget.ConstraintLayout>
+      EOF
+
+  - label: Write res/values/strings.xml
+    run: |
+      cat > "{{projectDir}}/app/src/main/res/values/strings.xml" <<'EOF'
+      <?xml version="1.0" encoding="utf-8"?>
+      <resources>
+          <string name="app_name">{{name}}</string>
+      </resources>
+      EOF
+
+  - label: Configure Build & Run
+    run: |
+      cat > "{{projectDir}}/.jcode/run.yaml" <<'EOF'
+      version: 1
+      name: Android app
+      terminals:
+        - label: Build APK
+          command: |
+            clear
+            set -e
+            cd "{{projectDir}}"
+            echo '== J Code: Build APK (assembleDebug) =='
+            echo 'Note: requires the Android SDK prerequisites (JDK, Android SDK, Gradle).'
+            echo 'Set ANDROID_HOME / sdk.dir if the build cannot find the SDK.'
+            ./gradlew :app:assembleDebug
+      EOF
