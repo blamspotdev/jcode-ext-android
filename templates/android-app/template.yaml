@@ -1,11 +1,6 @@
 id: android-app
 name: Android App
-description: >-
-  A minimal but real Kotlin Android app: a root Gradle build plus an :app module
-  with an AndroidManifest, a MainActivity, a ConstraintLayout screen, and a
-  "Build APK" task. Files are written directly into the project — there is no
-  interactive wizard. Building requires the Android SDK prerequisites (JDK,
-  Android SDK, and Gradle) to be configured in the runtime.
+description: A minimal Kotlin Android app — Gradle build, an :app module, and a ConstraintLayout screen. Needs the Android SDK prerequisites to build.
 requires:
   - android-prereqs
 recipe:
