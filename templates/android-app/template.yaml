@@ -3,6 +3,17 @@ name: Android App
 description: A minimal Kotlin Android app — Gradle build, an :app module, and a ConstraintLayout screen. Needs the Android SDK prerequisites to build.
 requires:
   - android-prereqs
+inputs:
+  - id: minSdk
+    label: Minimum SDK
+    type: select
+    options: ["21", "23", "24", "26", "28", "29", "30", "31", "33", "34"]
+    default: "24"
+  - id: targetSdk
+    label: Target / Compile SDK
+    type: select
+    options: ["30", "31", "33", "34", "35"]
+    default: "34"
 recipe:
   - label: Create project layout
     run: |
@@ -59,12 +70,12 @@ recipe:
 
       android {
           namespace = "com.example.{{name}}"
-          compileSdk = 34
+          compileSdk = {{targetSdk}}
 
           defaultConfig {
               applicationId = "com.example.{{name}}"
-              minSdk = 24
-              targetSdk = 34
+              minSdk = {{minSdk}}
+              targetSdk = {{targetSdk}}
               versionCode = 1
               versionName = "1.0"
           }
