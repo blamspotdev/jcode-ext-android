@@ -2,7 +2,7 @@
 schema: 1
 uniqueName: jcode.pack.android
 name: Android Dev Pack
-version: 0.3.0
+version: 0.3.1
 type: language
 publisher: jcode
 authors: [jcode]
@@ -20,7 +20,7 @@ suggests:
   lsps: [kotlin-language-server]
   extensions: []
 images:
-  icon: null
+  icon: media/icon.png
   samples: []
   walkthrough: []
 entry:
