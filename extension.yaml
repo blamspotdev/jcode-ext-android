@@ -148,3 +148,20 @@ languages:
               implementation "androidx.constraintlayout:constraintlayout:2.1.4"
               $0
           }
+
+# --- header fields merged from extension.jehm ---
+shortDescription: >-
+  Android XML + Gradle language support, helpers, and an Android app project template (Kotlin features via the Kotlin
+  Language Pack).
+minJCodeVersion: 1.0.0
+targetJCodeVersion: 1.0.0
+category: Languages
+subcategory: Android
+images:
+  icon: media/icon.png
+  samples: []
+  walkthrough: []
+entry:
+  manifest: extension.yaml
+  ui: null
+  libs: []
