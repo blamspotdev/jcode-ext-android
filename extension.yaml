@@ -9,7 +9,11 @@ description: Android XML + Gradle language support, helpers, and an Android app 
 # required Kotlin Language Pack (jcode.lang.kotlin); this pack adds Android XML +
 # Gradle languages and declares an Android app project template.
 requires:
+  # The Kotlin Language Pack now requires the Kotlin LSP + JDK itself, so Android gets them transitively.
   extensions: [jcode.lang.kotlin]
+  sdks: [android-sdk]
+suggests:
+  dbg: [java-debug]
 
 templates:
   - android-app
