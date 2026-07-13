@@ -10,10 +10,13 @@ inputs:
     type: select
     options: ["21", "23", "24", "26", "28", "29", "30", "31", "33", "34"]
     default: "24"
+  # Capped at 34: the distro's ARM-native aapt2 (Debian android-sdk-build-tools) cannot parse the
+  # compact resource-table format that android.jar uses from API 35 on, so on-device resource
+  # linking fails above 34.
   - id: targetSdk
     label: Target / Compile SDK
     type: select
-    options: ["30", "31", "33", "34", "35"]
+    options: ["30", "31", "33", "34"]
     default: "34"
 recipe:
   - label: Create project layout
@@ -48,28 +51,25 @@ recipe:
     run: |
       cat > "{{projectDir}}/build.gradle.kts" <<'EOF'
       plugins {
-          id("com.android.application") version "8.5.0" apply false
-          id("org.jetbrains.kotlin.android") version "1.9.24" apply false
+          id("com.android.application") version "9.2.1" apply false
       }
       EOF
 
   - label: Write gradle.properties
     run: |
-      cat > "{{projectDir}}/gradle.properties" <<EOF
+      cat > "{{projectDir}}/gradle.properties" <<'EOF'
       org.gradle.jvmargs=-Xmx2560m -Dfile.encoding=UTF-8
       android.useAndroidX=true
       kotlin.code.style=official
-      # Use the distro's ARM-native aapt2 (Google ships only x86_64 in build-tools).
-      android.aapt2FromMavenOverride=$HOME/android-sdk/build-tools/34.0.0/aapt2
-      android.suppressUnsupportedCompileSdk={{targetSdk}}
       EOF
 
   - label: Write app/build.gradle.kts
     run: |
+      # No Kotlin plugin: AGP 9+ ships built-in Kotlin support and errors if
+      # org.jetbrains.kotlin.android is applied.
       cat > "{{projectDir}}/app/build.gradle.kts" <<'EOF'
       plugins {
           id("com.android.application")
-          id("org.jetbrains.kotlin.android")
       }
 
       android {
@@ -93,10 +93,6 @@ recipe:
           compileOptions {
               sourceCompatibility = JavaVersion.VERSION_17
               targetCompatibility = JavaVersion.VERSION_17
-          }
-
-          kotlinOptions {
-              jvmTarget = "17"
           }
       }
 
@@ -192,8 +188,14 @@ recipe:
             clear
             set -e
             export JAVA_HOME="$(dirname "$(dirname "$(readlink -f "$(command -v javac)")")")"
-            export ANDROID_HOME="$HOME/android-sdk" ANDROID_SDK_ROOT="$HOME/android-sdk"
-            export PATH="/opt/gradle/gradle-8.7/bin:$JAVA_HOME/bin:$PATH"
+            # The SDK Manager installs as the jcode user, so the SDK may live in a different home.
+            ANDROID_HOME="$HOME/android-sdk"
+            [ -d "$ANDROID_HOME" ] || ANDROID_HOME="$(ls -d /home/*/android-sdk /root/android-sdk 2>/dev/null | head -1)"
+            export ANDROID_HOME ANDROID_SDK_ROOT="$ANDROID_HOME"
+            GRADLE_HOME="$(ls -d /opt/gradle/gradle-* 2>/dev/null | sort -V | tail -1)"
+            export PATH="${GRADLE_HOME:-/opt/gradle/current}/bin:$JAVA_HOME/bin:$PATH"
+            # Google ships only x86_64 aapt2; point AGP at the newest installed ARM-native copy.
+            AAPT2="$(ls -d "$ANDROID_HOME"/build-tools/*/ 2>/dev/null | sort -V | tail -1)aapt2"
             SRC="{{projectDir}}"
             STAGE="$HOME/.jcode-run/{{name}}-android"
             echo '== J Code: Build APK (assembleDebug) =='
@@ -204,7 +206,7 @@ recipe:
             cd "$STAGE"
             echo "sdk.dir=$ANDROID_HOME" > local.properties
             echo '[2/3] Building (gradle :app:assembleDebug)...'
-            gradle --no-daemon --console=plain :app:assembleDebug
+            gradle --no-daemon --console=plain -Pandroid.aapt2FromMavenOverride="$AAPT2" :app:assembleDebug
             echo '[3/3] Copying APK back into the project (build-output/)...'
             APK="$(ls "$STAGE"/app/build/outputs/apk/debug/*.apk | head -1)"
             mkdir -p "$SRC/build-output" && cp -f "$APK" "$SRC/build-output/"
