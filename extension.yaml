@@ -1,7 +1,7 @@
 id: jcode.pack.android
 name: Android Dev Pack
 publisher: jcode
-version: 0.3.2
+version: 0.3.3
 type: language
 description: Android XML + Gradle language support, helpers, and an Android app template.
 
@@ -9,10 +9,10 @@ description: Android XML + Gradle language support, helpers, and an Android app 
 # required Kotlin Dev Pack (jcode.lang.kotlin); this pack adds Android XML +
 # Gradle languages and declares an Android app project template.
 requires:
-  # The Kotlin Dev Pack now requires the Kotlin LSP + JDK itself, so Android gets them transitively.
+  # The Kotlin Dev Pack requires the Kotlin LSP itself, so Android gets it transitively.
   extensions: [jcode.lang.kotlin]
-  sdks: [android-sdk]
 suggests:
+  sdks: [android-sdk]
   dbg: [java-debug]
 
 templates:
