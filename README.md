@@ -1,4 +1,4 @@
-# J Code — Android Dev Pack
+# JCode — Android Dev Pack
 
 A combined **dev pack** for Android development in J Code. It adds language
 support for **Android XML** (layouts and `AndroidManifest.xml`) and **Gradle**
