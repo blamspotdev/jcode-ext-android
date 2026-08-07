@@ -1,7 +1,7 @@
 id: jcode.pack.android
 name: Android Dev Pack
 publisher: jcode
-version: 0.3.3
+version: 0.4.0
 type: language
 description: Android XML + Gradle language support, helpers, and an Android app template.
 
@@ -12,8 +12,17 @@ requires:
   # The Kotlin Dev Pack requires the Kotlin LSP itself, so Android gets it transitively.
   extensions: [jcode.lang.kotlin]
 suggests:
-  sdks: [android-sdk]
+  # adb is the distro's native aarch64 client. The device sandbox itself needs nothing
+  # installed, but J Code's own adbd is only reachable from a terminal through it.
+  sdks: [android-sdk, adb]
   dbg: [java-debug]
+
+# No `contributes.runConfigPresets` on purpose. J Code already detects a Gradle project's
+# Android app module and offers "Run on this device" and "Run in a virtual device" itself,
+# and extension presets share that one list — a preset here would be a second, duplicate
+# row. It could not be a correct one either: the virtual-device recipe is found afterwards
+# by a project-RELATIVE marker in its script, and a preset's only substitutions
+# ({{projectDir}}, {{file}}/{{dir}}, {{fileN}}/{{dirN}}) all expand to guest-absolute paths.
 
 templates:
   - android-app
@@ -152,6 +161,29 @@ languages:
               implementation "androidx.constraintlayout:constraintlayout:2.1.4"
               $0
           }
+      # Reminders for the build/test loop, as // comments so they drop into a build script
+      # without breaking it. Read, then delete.
+      - title: vdevice build and test without installing
+        snippet: |
+          // "Add run config" offers "Run in a virtual device": it builds this module and opens
+          // the APK in a Device sandbox tab. Nothing is installed and adb is never used, so it
+          // works on a phone that was never paired.
+          // Turn it on once: Settings -> Environment -> "Run in a virtual device".
+          // By hand: ./gradlew :${1:app}:assembleDebug, then paste
+          // ${1:app}/build/outputs/apk/debug/*.apk into the tab's "APK path".
+          $0
+      - title: adb drive JCode vDevice from a terminal
+        snippet: |
+          // J Code serves its own adbd, and a terminal's ANDROID_SERIAL already points at it,
+          // so these need no -s and no paired phone:
+          //   adb devices -l   ->   127.0.0.1:5620   device   model:JCode_vDevice
+          //   adb install ${1:app}/build/outputs/apk/debug/app-debug.apk
+          //   adb shell am start -n ${2:com.example.app}/.MainActivity      // opens in the tab
+          //   adb shell am start -n ${2:com.example.app}/.MainActivity --windowingMode 1  // full screen
+          //   adb exec-out screencap -p > shot.png
+          // That daemon serves install, pm list packages, am start, screencap and getprop.
+          // logcat, push/pull and uninstall are not answered.
+          $0
 
 # --- header fields merged from extension.jehm ---
 shortDescription: >-
