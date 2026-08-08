@@ -1,7 +1,7 @@
 id: jcode.pack.android
 name: Android Dev Pack
 publisher: jcode
-version: 0.4.0
+version: 0.5.0
 type: language
 description: Android XML + Gradle language support, helpers, and an Android app template.
 
@@ -17,12 +17,53 @@ suggests:
   sdks: [android-sdk, adb]
   dbg: [java-debug]
 
-# No `contributes.runConfigPresets` on purpose. J Code already detects a Gradle project's
-# Android app module and offers "Run on this device" and "Run in a virtual device" itself,
-# and extension presets share that one list — a preset here would be a second, duplicate
-# row. It could not be a correct one either: the virtual-device recipe is found afterwards
-# by a project-RELATIVE marker in its script, and a preset's only substitutions
-# ({{projectDir}}, {{file}}/{{dir}}, {{fileN}}/{{dirN}}) all expand to guest-absolute paths.
+# Gradle helpers, for the tasks J Code does not already offer a row for.
+#
+# None of these launch the app, deliberately. J Code detects a Gradle project's Android app module
+# itself and offers "Run on this device" and "Run in a virtual device", and extension presets share
+# that one list — a launch preset here would sit beside them as a duplicate, and could not be a
+# correct one either: the virtual-device recipe is found afterwards by a project-RELATIVE marker in
+# its script, while a preset's substitutions ({{projectDir}}, {{file}}/{{dir}}, {{fileN}}/{{dirN}})
+# all expand to guest-absolute paths. The build-side tasks have neither problem: nothing built in
+# covers them, and {{projectDir}} is all they need.
+contributes:
+  runConfigPresets:
+    - id: android-assemble-debug
+      label: Assemble debug APK
+      # `gradlew` rather than a build script: it is the one file every Gradle project has under
+      # either DSL, and it is what each of these commands invokes.
+      requires: [gradlew]
+      terminals:
+        - label: Build
+          command: cd {{projectDir}} && ./gradlew assembleDebug
+
+    - id: android-assemble-release
+      label: Assemble release APK
+      requires: [gradlew]
+      terminals:
+        - label: Build
+          command: cd {{projectDir}} && ./gradlew assembleRelease
+
+    - id: android-install-debug
+      label: Install debug build on device
+      requires: [gradlew]
+      terminals:
+        - label: Install
+          command: cd {{projectDir}} && ./gradlew installDebug
+
+    - id: android-unit-tests
+      label: Run unit tests
+      requires: [gradlew]
+      terminals:
+        - label: Test
+          command: cd {{projectDir}} && ./gradlew testDebugUnitTest
+
+    - id: android-clean
+      label: Clean build outputs
+      requires: [gradlew]
+      terminals:
+        - label: Clean
+          command: cd {{projectDir}} && ./gradlew clean
 
 templates:
   - android-app
