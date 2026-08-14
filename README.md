@@ -23,6 +23,33 @@ configured in the runtime — the JDK, Android SDK, and Gradle used by `./gradle
   root + `:app` Gradle module, `AndroidManifest.xml`, `MainActivity`, a
   `ConstraintLayout` screen, `strings.xml`, and a **Build APK** task
   (`./gradlew :app:assembleDebug`).
+- **Build helpers** — one-tap Gradle tasks and a project check, below.
+
+## Building a project you cloned
+
+A repository written on a desktop assumes a desktop SDK, and none of the ways
+that goes wrong here announce itself — the build fails deep inside resource
+linking, or Gradle reports an SDK location that belongs to someone else's laptop.
+
+**Add build task** on any Gradle project offers two helpers for exactly that:
+
+- **Check this project builds here** — reports, changes nothing. It compares the
+  project's `compileSdk` against the highest one this device's ARM-native `aapt2`
+  can link against (recorded by the `android-sdk` toolchain in
+  `jcode-compile-sdk.txt`), and checks `local.properties`, the Gradle wrapper and
+  its jar, the `android.aapt2FromMavenOverride` that keeps AGP off its own x86_64
+  `aapt2`, the heap the project asks for against the RAM this device has, and the
+  JDK in use.
+- **Apply build fixes** — repairs the three that can be repaired locally: writes
+  `sdk.dir`, pins `compileSdk`/`targetSdk` **down** to the ceiling wherever they
+  are above it (build scripts and version catalogs alike; values already below it
+  are left alone), and restores `gradlew`'s exec bit. Every file it edits is
+  copied to `.jcode/build-fix-backup-<timestamp>/` first and each change is
+  printed, so `git diff` afterwards is the whole story.
+
+Alongside them: **Assemble release APK**, **Bundle release AAB**, **Install debug
+build**, **Run unit tests**, **Run lint** and **Clean**. `assembleDebug` is not
+here because J Code detects it itself, per application module.
 
 ## Testing in the device sandbox
 
@@ -32,10 +59,15 @@ debug APK Gradle just produced.
 
 Turn it on once in **Settings → Environment → "Run in a virtual device"**. After
 that, **Add run config** on a Gradle project offers **"Run in a virtual device"**
-next to **"Run on this device"** — J Code detects the app module itself, so this
-pack contributes no run preset of its own. Pick it, and when the build finishes
-the APK opens in a **Device sandbox** tab. You can also open the tab from the
-Run panel and paste an APK path in by hand.
+next to **"Run on a device"** — J Code detects the application modules itself and
+lists one entry per module, so this pack contributes no run preset of its own.
+Pick it, and when the build finishes the APK opens in a **Device sandbox** tab.
+You can also open the tab from the Run panel and paste an APK path in by hand.
+
+**"Run on a device"** goes through `adb` instead, and the Run panel's target row
+says which device that is. Tap it to choose between the virtual device, this
+phone, and anything else the runtime's adb server has connected; the choice is
+remembered per project and exported as `ANDROID_SERIAL` for that launch.
 
 J Code also serves its **own adbd**, so the sandbox is a normal `adb` target from
 any terminal. `ANDROID_SERIAL` is already exported there, so no `-s` is needed:
