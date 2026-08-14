@@ -53,7 +53,52 @@ contributes:
             # backs originals up under .jcode, and a scan that read those back would report a project
             # as broken because of a copy of how it used to be.
             SKIP="--exclude-dir=build --exclude-dir=.gradle --exclude-dir=.jcode --exclude-dir=.git"
-            SCRIPTS=$(grep -rl $SKIP -E 'compileSdk|targetSdk' --include='build.gradle' --include='build.gradle.kts' --include='libs.versions.toml' . 2>/dev/null)
+            # Only BUILD SCRIPTS declare a compileSdk. A version catalog holds a version that a build
+            # script may or may not use, and reading one as if it were the answer is how a project
+            # that already overrides its SDK locally gets reported as broken.
+            SCRIPTS=$(grep -rl $SKIP -E '(^|[^A-Za-z])(compileSdk|targetSdk)[[:space:]]*=' --include='build.gradle' --include='build.gradle.kts' . 2>/dev/null)
+
+            # Value of Gradle property $1. The project's gradle.properties wins over the home one,
+            # which is the order Gradle itself resolves them in.
+            gradle_prop() {
+              esc=$(printf '%s' "$1" | sed 's/\./\\./g')
+              V=$(sed -n -E "s/^[[:space:]]*$esc[[:space:]]*=[[:space:]]*(.*)$/\1/p" gradle.properties 2>/dev/null | tail -1 | tr -d '\r')
+              [ -n "$V" ] || V=$(sed -n -E "s/^[[:space:]]*$esc[[:space:]]*=[[:space:]]*(.*)$/\1/p" "$HOME/.gradle/gradle.properties" 2>/dev/null | tail -1 | tr -d '\r')
+              printf '%s' "$V"
+            }
+
+            # A [versions] entry from the version catalog. Accessors spell `-` as `.`, so try both.
+            catalog_version() {
+              for k in "$1" "$(printf '%s' "$1" | tr '.' '-')"; do
+                V=$(sed -n -E "s/^[[:space:]]*$k[[:space:]]*=[[:space:]]*\"([^\"]+)\".*/\1/p" gradle/libs.versions.toml 2>/dev/null | head -1)
+                [ -n "$V" ] && { printf '%s' "$V"; return; }
+              done
+            }
+
+            # What $2 (compileSdk or targetSdk) actually evaluates to in build script $1, following the
+            # same order the script does: a Gradle property override first, then the version catalog it
+            # falls back to, then a plain literal. Sets SDK_VALUE, SDK_SOURCE and SDK_PROP.
+            #
+            # The window is three lines because the idiomatic override wraps:
+            #   compileSdk = (findProperty("x.compileSdk") as String?
+            #       ?: libs.versions.compileSdk.get()).toInt()
+            resolve_sdk() {
+              SDK_VALUE=""; SDK_SOURCE=""; SDK_PROP=""
+              WIN=$(grep -m1 -A2 -E "(^|[^A-Za-z])$2[[:space:]]*=" "$1" 2>/dev/null | tr '\n' ' ')
+              [ -n "$WIN" ] || return 1
+              SDK_PROP=$(printf '%s' "$WIN" | sed -n -E 's/.*(findProperty|gradleProperty|property)\([[:space:]]*"([^"]+)".*/\2/p')
+              if [ -n "$SDK_PROP" ]; then
+                V=$(gradle_prop "$SDK_PROP")
+                case "$V" in ''|*[!0-9]*) ;; *) SDK_VALUE="$V"; SDK_SOURCE="gradle.properties $SDK_PROP"; return 0 ;; esac
+              fi
+              CAT=$(printf '%s' "$WIN" | sed -n -E 's/.*libs\.versions\.([A-Za-z0-9_.-]+)\.get\(\).*/\1/p')
+              if [ -n "$CAT" ]; then
+                V=$(catalog_version "$CAT")
+                case "$V" in ''|*[!0-9]*) ;; *) SDK_VALUE="$V"; SDK_SOURCE="libs.versions.toml $CAT"; return 0 ;; esac
+              fi
+              V=$(printf '%s' "$WIN" | sed -n -E "s/.*$2[[:space:]]*=[[:space:]]*\"?([0-9]+)\"?.*/\1/p")
+              case "$V" in ''|*[!0-9]*) return 1 ;; *) SDK_VALUE="$V"; SDK_SOURCE="the build script"; return 0 ;; esac
+            }
 
             echo "== Can this device build $PROJ? =="
 
@@ -74,17 +119,28 @@ contributes:
             fi
 
             echo "- compileSdk"
-            MAX=""
-            [ -n "$SCRIPTS" ] && MAX=$(sed -n -E 's/.*compileSdk[A-Za-z]*[[:space:]]*=?[[:space:]]*"?([0-9]+)"?.*/\1/p' $SCRIPTS 2>/dev/null | sort -n | tail -1)
+            MAX=""; OVER=""; OVER_PROP=""
+            for f in $SCRIPTS; do
+              resolve_sdk "$f" compileSdk || continue
+              # Informational, not a verdict: the verdict is below, once every module has resolved.
+              # Saying WHERE the number came from is the point, since a build script that reads a
+              # property or a catalog does not carry the answer on its own line.
+              note "$f: compileSdk $SDK_VALUE (from $SDK_SOURCE)"
+              [ -n "$SDK_PROP" ] && OVER_PROP="$SDK_PROP"
+              if [ -z "$MAX" ] || [ "$SDK_VALUE" -gt "$MAX" ]; then MAX="$SDK_VALUE"; fi
+              if [ -n "$CEILING" ] && [ "$SDK_VALUE" -gt "$CEILING" ]; then OVER="$OVER $f"; fi
+            done
             if [ -z "$MAX" ]; then
-              note "No numeric compileSdk found in any build script or version catalog."
-            elif [ -n "$CEILING" ] && [ "$MAX" -gt "$CEILING" ]; then
+              note "No numeric compileSdk resolved from any build script."
+            elif [ -n "$OVER" ]; then
               bad "compileSdk $MAX is above this device's ceiling of $CEILING; resource linking fails with 'RES_TABLE_TYPE_TYPE entry offsets overlap actual entry data'."
-              # -H because grep drops the filename when there is only one match target, and which
-              # file to edit is the whole point of printing these.
-              grep -Hn -E 'compileSdk[A-Za-z]*[[:space:]]*=?[[:space:]]*"?[0-9]+' $SCRIPTS 2>/dev/null | sed 's/^/      /'
-            else
-              ok "compileSdk $MAX"
+              if [ -n "$OVER_PROP" ]; then
+                note "The build already reads $OVER_PROP, so the fix is local: put $OVER_PROP=$CEILING in gradle.properties. The version catalog keeps the release value."
+              else
+                note "Declared in:$OVER"
+              fi
+            elif [ -n "$CEILING" ]; then
+              ok "compileSdk $MAX is within this device's ceiling of $CEILING."
             fi
 
             echo "- Gradle wrapper"
@@ -192,20 +248,71 @@ contributes:
               CHANGED=$((CHANGED + 1))
             fi
 
-            # 2. Pin compileSdk/targetSdk down to what the ARM-native aapt2 can read. Only values ABOVE
-            #    the ceiling are touched; a project already on an older SDK is left where it is.
+            # 2. Bring the EFFECTIVE compileSdk/targetSdk down to what the ARM-native aapt2 can read.
+            #
+            #    "Effective" is the point. A build script that reads a Gradle property before falling
+            #    back to the version catalog is already telling us where a local override belongs, so
+            #    the fix is one line in gradle.properties and the catalog keeps the value a release
+            #    build uses. Rewriting the catalog instead would quietly lower the shipped targetSdk,
+            #    which Play rejects. Only a project with a hardcoded literal gets its script edited,
+            #    because there is nowhere else for the value to live.
+            gradle_prop() {
+              esc=$(printf '%s' "$1" | sed 's/\./\\./g')
+              V=$(sed -n -E "s/^[[:space:]]*$esc[[:space:]]*=[[:space:]]*(.*)$/\1/p" gradle.properties 2>/dev/null | tail -1 | tr -d '\r')
+              [ -n "$V" ] || V=$(sed -n -E "s/^[[:space:]]*$esc[[:space:]]*=[[:space:]]*(.*)$/\1/p" "$HOME/.gradle/gradle.properties" 2>/dev/null | tail -1 | tr -d '\r')
+              printf '%s' "$V"
+            }
+            catalog_version() {
+              for k in "$1" "$(printf '%s' "$1" | tr '.' '-')"; do
+                V=$(sed -n -E "s/^[[:space:]]*$k[[:space:]]*=[[:space:]]*\"([^\"]+)\".*/\1/p" gradle/libs.versions.toml 2>/dev/null | head -1)
+                [ -n "$V" ] && { printf '%s' "$V"; return; }
+              done
+            }
+            resolve_sdk() {
+              SDK_VALUE=""; SDK_SOURCE=""; SDK_PROP=""
+              WIN=$(grep -m1 -A2 -E "(^|[^A-Za-z])$2[[:space:]]*=" "$1" 2>/dev/null | tr '\n' ' ')
+              [ -n "$WIN" ] || return 1
+              SDK_PROP=$(printf '%s' "$WIN" | sed -n -E 's/.*(findProperty|gradleProperty|property)\([[:space:]]*"([^"]+)".*/\2/p')
+              if [ -n "$SDK_PROP" ]; then
+                V=$(gradle_prop "$SDK_PROP")
+                case "$V" in ''|*[!0-9]*) ;; *) SDK_VALUE="$V"; SDK_SOURCE="property"; return 0 ;; esac
+              fi
+              CAT=$(printf '%s' "$WIN" | sed -n -E 's/.*libs\.versions\.([A-Za-z0-9_.-]+)\.get\(\).*/\1/p')
+              if [ -n "$CAT" ]; then
+                V=$(catalog_version "$CAT")
+                case "$V" in ''|*[!0-9]*) ;; *) SDK_VALUE="$V"; SDK_SOURCE="catalog"; return 0 ;; esac
+              fi
+              V=$(printf '%s' "$WIN" | sed -n -E "s/.*$2[[:space:]]*=[[:space:]]*\"?([0-9]+)\"?.*/\1/p")
+              case "$V" in ''|*[!0-9]*) return 1 ;; *) SDK_VALUE="$V"; SDK_SOURCE="literal"; return 0 ;; esac
+            }
+            # Set Gradle property $1 to $2 in the project's gradle.properties, replacing any line
+            # already declaring it.
+            set_gradle_prop() {
+              [ -f gradle.properties ] && backup gradle.properties
+              esc=$(printf '%s' "$1" | sed 's/\./\\./g')
+              [ -f gradle.properties ] && sed -i -E "/^[[:space:]]*$esc[[:space:]]*=/d" gradle.properties
+              printf '%s=%s\n' "$1" "$2" >> gradle.properties
+              echo "  gradle.properties: $1=$2"
+              CHANGED=$((CHANGED + 1))
+            }
             if [ -n "$CEILING" ]; then
-              SCRIPTS=$(grep -rl $SKIP -E 'compileSdk|targetSdk' --include='build.gradle' --include='build.gradle.kts' --include='libs.versions.toml' . 2>/dev/null)
+              SCRIPTS=$(grep -rl $SKIP -E '(^|[^A-Za-z])(compileSdk|targetSdk)[[:space:]]*=' --include='build.gradle' --include='build.gradle.kts' . 2>/dev/null)
               for f in $SCRIPTS; do
                 SAVED=0
                 for key in compileSdk targetSdk; do
-                  for n in $(sed -n -E "s/.*$key"'[A-Za-z]*[[:space:]]*=?[[:space:]]*"?([0-9]+)"?.*/\1/p' "$f" | sort -un); do
-                    [ "$n" -gt "$CEILING" ] || continue
+                  resolve_sdk "$f" "$key" || continue
+                  [ "$SDK_VALUE" -gt "$CEILING" ] || continue
+                  if [ -n "$SDK_PROP" ]; then
+                    set_gradle_prop "$SDK_PROP" "$CEILING"
+                  elif [ "$SDK_SOURCE" = "literal" ]; then
                     [ "$SAVED" -eq 1 ] || { backup "$f"; SAVED=1; }
-                    sed -i -E "s/($key"'[A-Za-z]*[[:space:]]*=?[[:space:]]*"?)'"$n"'("?)/\1'"$CEILING"'\2/g' "$f"
-                    echo "  $f: $key $n -> $CEILING"
+                    sed -i -E "s/($key[[:space:]]*=[[:space:]]*\"?)$SDK_VALUE(\"?)/\1$CEILING\2/g" "$f"
+                    echo "  $f: $key $SDK_VALUE -> $CEILING"
                     CHANGED=$((CHANGED + 1))
-                  done
+                  else
+                    echo "  Still manual: $f reads $key from the version catalog with no property to override."
+                    echo "    Lowering gradle/libs.versions.toml would lower it for release builds too."
+                  fi
                 done
               done
             else
