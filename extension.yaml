@@ -1,7 +1,7 @@
 id: jcode.pack.android
 name: Android Dev Pack
 publisher: jcode
-version: 0.5.0
+version: 0.6.0
 type: language
 description: Android XML + Gradle language support, helpers, and an Android app template.
 
@@ -17,53 +17,393 @@ suggests:
   sdks: [android-sdk, adb]
   dbg: [java-debug]
 
-# Gradle helpers, for the tasks J Code does not already offer a row for.
+# Build helpers, so a project that was cloned rather than scaffolded here is one tap from an APK.
 #
-# None of these launch the app, deliberately. J Code detects a Gradle project's Android app module
-# itself and offers "Run on this device" and "Run in a virtual device", and extension presets share
-# that one list — a launch preset here would sit beside them as a duplicate, and could not be a
-# correct one either: the virtual-device recipe is found afterwards by a project-RELATIVE marker in
-# its script, while a preset's substitutions ({{projectDir}}, {{file}}/{{dir}}, {{fileN}}/{{dirN}})
-# all expand to guest-absolute paths. The build-side tasks have neither problem: nothing built in
-# covers them, and {{projectDir}} is all they need.
+# All of them are `kind: build`, which puts them in the Run panel's Build segment: each produces an
+# artifact (or a report) and exits, rather than starting something to interact with. None launch the
+# app, deliberately. J Code detects a Gradle project's Android application modules itself and offers
+# "Run on a device" and "Run in a virtual device" per module, and extension presets share that one
+# list — a launch preset here would sit beside them as a duplicate, and could not be a correct one
+# either: the virtual-device recipe is found afterwards by a project-RELATIVE marker in its script,
+# while a preset's substitutions ({{projectDir}}, {{file}}/{{dir}}, {{fileN}}/{{dirN}}) all expand to
+# guest-absolute paths. The build tasks have neither problem, and {{projectDir}} is all they need.
 contributes:
   runConfigPresets:
-    - id: android-assemble-debug
-      label: Assemble debug APK
-      # `gradlew` rather than a build script: it is the one file every Gradle project has under
-      # either DSL, and it is what each of these commands invokes.
-      requires: [gradlew]
+    # --- the two that make a CLONED project buildable at all -----------------
+    #
+    # A repository written on a desktop assumes a desktop SDK: a compileSdk newer than the ARM-native
+    # aapt2 here can read, an sdk.dir from another machine, a wrapper jar that was gitignored. None of
+    # that announces itself — the build just fails deep inside resource linking — so the check names
+    # each one, and the fix repairs the three that can be repaired locally.
+    - id: android-doctor
+      label: Check this project builds here
+      kind: build
+      requires: ["build.gradle*"]
       terminals:
-        - label: Build
-          command: cd {{projectDir}} && ./gradlew assembleDebug
+        - label: Check
+          command: |
+            # Reports only. Nothing here writes to the project; "Apply build fixes" does that.
+            PROJ="{{projectDir}}"
+            cd "$PROJ" || { echo "Cannot enter $PROJ"; exit 1; }
+            FAIL=0
+            note() { printf '      %s\n' "$*"; }
+            bad()  { printf '  [!] %s\n' "$*"; FAIL=$((FAIL + 1)); }
+            ok()   { printf '  [ok] %s\n' "$*"; }
+            # Never look inside build output, Gradle's caches, or J Code's own directory: the fixer
+            # backs originals up under .jcode, and a scan that read those back would report a project
+            # as broken because of a copy of how it used to be.
+            SKIP="--exclude-dir=build --exclude-dir=.gradle --exclude-dir=.jcode --exclude-dir=.git"
+            # Only BUILD SCRIPTS declare a compileSdk. A version catalog holds a version that a build
+            # script may or may not use, and reading one as if it were the answer is how a project
+            # that already overrides its SDK locally gets reported as broken.
+            SCRIPTS=$(grep -rl $SKIP -E '(^|[^A-Za-z])(compileSdk|targetSdk)[[:space:]]*=' --include='build.gradle' --include='build.gradle.kts' . 2>/dev/null)
 
+            # Value of Gradle property $1. The project's gradle.properties wins over the home one,
+            # which is the order Gradle itself resolves them in.
+            gradle_prop() {
+              esc=$(printf '%s' "$1" | sed 's/\./\\./g')
+              V=$(sed -n -E "s/^[[:space:]]*$esc[[:space:]]*=[[:space:]]*(.*)$/\1/p" gradle.properties 2>/dev/null | tail -1 | tr -d '\r')
+              [ -n "$V" ] || V=$(sed -n -E "s/^[[:space:]]*$esc[[:space:]]*=[[:space:]]*(.*)$/\1/p" "$HOME/.gradle/gradle.properties" 2>/dev/null | tail -1 | tr -d '\r')
+              printf '%s' "$V"
+            }
+
+            # A [versions] entry from the version catalog. Accessors spell `-` as `.`, so try both.
+            catalog_version() {
+              for k in "$1" "$(printf '%s' "$1" | tr '.' '-')"; do
+                V=$(sed -n -E "s/^[[:space:]]*$k[[:space:]]*=[[:space:]]*\"([^\"]+)\".*/\1/p" gradle/libs.versions.toml 2>/dev/null | head -1)
+                [ -n "$V" ] && { printf '%s' "$V"; return; }
+              done
+            }
+
+            # What $2 (compileSdk or targetSdk) actually evaluates to in build script $1, following the
+            # same order the script does: a Gradle property override first, then the version catalog it
+            # falls back to, then a plain literal. Sets SDK_VALUE, SDK_SOURCE and SDK_PROP.
+            #
+            # The window is three lines because the idiomatic override wraps:
+            #   compileSdk = (findProperty("x.compileSdk") as String?
+            #       ?: libs.versions.compileSdk.get()).toInt()
+            resolve_sdk() {
+              SDK_VALUE=""; SDK_SOURCE=""; SDK_PROP=""
+              WIN=$(grep -m1 -A2 -E "(^|[^A-Za-z])$2[[:space:]]*=" "$1" 2>/dev/null | tr '\n' ' ')
+              [ -n "$WIN" ] || return 1
+              SDK_PROP=$(printf '%s' "$WIN" | sed -n -E 's/.*(findProperty|gradleProperty|property)\([[:space:]]*"([^"]+)".*/\2/p')
+              if [ -n "$SDK_PROP" ]; then
+                V=$(gradle_prop "$SDK_PROP")
+                case "$V" in ''|*[!0-9]*) ;; *) SDK_VALUE="$V"; SDK_SOURCE="gradle.properties $SDK_PROP"; return 0 ;; esac
+              fi
+              CAT=$(printf '%s' "$WIN" | sed -n -E 's/.*libs\.versions\.([A-Za-z0-9_.-]+)\.get\(\).*/\1/p')
+              if [ -n "$CAT" ]; then
+                V=$(catalog_version "$CAT")
+                case "$V" in ''|*[!0-9]*) ;; *) SDK_VALUE="$V"; SDK_SOURCE="libs.versions.toml $CAT"; return 0 ;; esac
+              fi
+              V=$(printf '%s' "$WIN" | sed -n -E "s/.*$2[[:space:]]*=[[:space:]]*\"?([0-9]+)\"?.*/\1/p")
+              case "$V" in ''|*[!0-9]*) return 1 ;; *) SDK_VALUE="$V"; SDK_SOURCE="the build script"; return 0 ;; esac
+            }
+
+            echo "== Can this device build $PROJ? =="
+
+            echo "- Android SDK"
+            SDK="${ANDROID_HOME:-}"
+            [ -n "$SDK" ] || SDK="${ANDROID_SDK_ROOT:-}"
+            CEILING=""
+            if [ -z "$SDK" ] || [ ! -d "$SDK/platforms" ]; then
+              bad "No Android SDK. Install the 'android-sdk' toolchain from the Toolchains panel."
+            else
+              ok "ANDROID_HOME=$SDK"
+              CEILING=$(tr -dc '0-9' < "$SDK/jcode-compile-sdk.txt" 2>/dev/null)
+              if [ -n "$CEILING" ]; then
+                ok "Highest compileSdk this device's aapt2 can link against: $CEILING"
+              else
+                note "No jcode-compile-sdk.txt; reinstall the android-sdk toolchain to record the ceiling."
+              fi
+            fi
+
+            echo "- compileSdk"
+            MAX=""; OVER=""; OVER_PROP=""
+            for f in $SCRIPTS; do
+              resolve_sdk "$f" compileSdk || continue
+              # Informational, not a verdict: the verdict is below, once every module has resolved.
+              # Saying WHERE the number came from is the point, since a build script that reads a
+              # property or a catalog does not carry the answer on its own line.
+              note "$f: compileSdk $SDK_VALUE (from $SDK_SOURCE)"
+              [ -n "$SDK_PROP" ] && OVER_PROP="$SDK_PROP"
+              if [ -z "$MAX" ] || [ "$SDK_VALUE" -gt "$MAX" ]; then MAX="$SDK_VALUE"; fi
+              if [ -n "$CEILING" ] && [ "$SDK_VALUE" -gt "$CEILING" ]; then OVER="$OVER $f"; fi
+            done
+            if [ -z "$MAX" ]; then
+              note "No numeric compileSdk resolved from any build script."
+            elif [ -n "$OVER" ]; then
+              bad "compileSdk $MAX is above this device's ceiling of $CEILING; resource linking fails with 'RES_TABLE_TYPE_TYPE entry offsets overlap actual entry data'."
+              if [ -n "$OVER_PROP" ]; then
+                note "The build already reads $OVER_PROP, so the fix is local: put $OVER_PROP=$CEILING in gradle.properties. The version catalog keeps the release value."
+              else
+                note "Declared in:$OVER"
+              fi
+            elif [ -n "$CEILING" ]; then
+              ok "compileSdk $MAX is within this device's ceiling of $CEILING."
+            fi
+
+            echo "- Gradle wrapper"
+            if [ -f gradlew ] && [ ! -f gradle/wrapper/gradle-wrapper.jar ]; then
+              bad "gradle/wrapper/gradle-wrapper.jar is missing (often gitignored), so gradlew cannot start. Restore it with: gradle wrapper"
+            elif [ -f gradlew ]; then
+              WRAP=$(sed -n -E 's/^distributionUrl=.*gradle-([0-9.]+)-(bin|all)\.zip.*/\1/p' gradle/wrapper/gradle-wrapper.properties 2>/dev/null)
+              ok "Wrapper Gradle ${WRAP:-(version not readable)}"
+            elif command -v gradle >/dev/null 2>&1; then
+              note "No wrapper, so builds use the runtime's Gradle. That is usually newer than the AGP a project pins; if configuration fails on the AGP version, pin one: gradle wrapper --gradle-version 8.9"
+            else
+              bad "No gradlew and no gradle in the runtime. Install the 'android-sdk' toolchain, which brings Gradle."
+            fi
+
+            echo "- local.properties"
+            if [ ! -f local.properties ]; then
+              ok "Absent, so ANDROID_HOME is what the build uses."
+            else
+              DIR=$(sed -n -E 's/^[[:space:]]*sdk\.dir=(.*)$/\1/p' local.properties | tail -1 | tr -d '\r')
+              if [ -z "$DIR" ]; then
+                ok "No sdk.dir line, so ANDROID_HOME is what the build uses."
+              elif [ -d "$DIR" ]; then
+                ok "sdk.dir=$DIR"
+              else
+                bad "sdk.dir=$DIR does not exist here; it was committed from another machine."
+              fi
+            fi
+
+            echo "- aapt2"
+            GP="$HOME/.gradle/gradle.properties"
+            if grep -qs '^android.aapt2FromMavenOverride=' "$GP"; then
+              ok "$(grep -h '^android.aapt2FromMavenOverride=' "$GP" | tail -1)"
+            else
+              bad "android.aapt2FromMavenOverride is unset in $GP, so AGP fetches its own x86_64 aapt2 and the build dies with 'AAPT2 ... Daemon startup failed'. Reinstalling the android-sdk toolchain writes it."
+            fi
+            if grep -qs '^android.aapt2FromMavenOverride=' gradle.properties; then
+              note "This project sets it too, and a project property wins:"
+              grep -h '^android.aapt2FromMavenOverride=' gradle.properties | sed 's/^/      /'
+            fi
+
+            echo "- Memory"
+            ARGS=$(grep -hs '^org.gradle.jvmargs' gradle.properties | tail -1)
+            RAM=$(awk '/MemTotal/ { printf "%d", $2 / 1024 }' /proc/meminfo 2>/dev/null)
+            if [ -n "$ARGS" ]; then
+              note "$ARGS"
+              [ -n "$RAM" ] && note "This device has ${RAM} MB of RAM. A heap much past a third of that will thrash rather than build."
+            else
+              ok "No org.gradle.jvmargs, so Gradle picks its own heap."
+            fi
+
+            echo "- Toolchain"
+            java -version 2>&1 | head -1 | sed 's/^/      /'
+            if grep -rqs $SKIP 'externalNativeBuild' --include='build.gradle' --include='build.gradle.kts' . ; then
+              note "This project compiles native code, so it needs the NDK and CMake as well as the SDK."
+            fi
+
+            echo
+            if [ "$FAIL" -eq 0 ]; then
+              echo "Nothing blocking. Build it from the Build segment, or: ./gradlew assembleDebug"
+            else
+              echo "$FAIL blocker(s). 'Apply build fixes' repairs the local ones and backs up every file it edits."
+            fi
+
+    - id: android-doctor-fix
+      label: Apply build fixes
+      kind: build
+      requires: ["build.gradle*"]
+      terminals:
+        - label: Fix
+          command: |
+            # Writes to the project. Every edited file is copied into .jcode/build-fix-backup-<stamp>/
+            # first, and the run prints each change, so `git diff` afterwards is the whole story.
+            PROJ="{{projectDir}}"
+            cd "$PROJ" || { echo "Cannot enter $PROJ"; exit 1; }
+            SDK="${ANDROID_HOME:-}"
+            [ -n "$SDK" ] || SDK="${ANDROID_SDK_ROOT:-}"
+            if [ -z "$SDK" ] || [ ! -d "$SDK/platforms" ]; then
+              echo "No Android SDK. Install the 'android-sdk' toolchain first; nothing to fix without it."
+              exit 1
+            fi
+            CEILING=$(tr -dc '0-9' < "$SDK/jcode-compile-sdk.txt" 2>/dev/null)
+            BK=".jcode/build-fix-backup-$(date +%Y%m%d-%H%M%S)"
+            CHANGED=0
+            backup() { mkdir -p "$BK/$(dirname "$1")" && cp -p "$1" "$BK/$1"; }
+            # Backups live under .jcode, so the scan below must skip it: a second run would otherwise
+            # rewrite the copies of what the first run changed, and there would be no original left.
+            SKIP="--exclude-dir=build --exclude-dir=.gradle --exclude-dir=.jcode --exclude-dir=.git"
+
+            echo "== Applying build fixes in $PROJ =="
+
+            # 1. Point the build at this device's SDK. Gradle reads local.properties before it reads
+            #    the environment, so a stale sdk.dir from another machine beats a correct ANDROID_HOME.
+            NEED_LOCAL=0
+            if [ ! -f local.properties ]; then
+              NEED_LOCAL=1
+            else
+              DIR=$(sed -n -E 's/^[[:space:]]*sdk\.dir=(.*)$/\1/p' local.properties | tail -1 | tr -d '\r')
+              [ -n "$DIR" ] && [ ! -d "$DIR" ] && NEED_LOCAL=1
+            fi
+            if [ "$NEED_LOCAL" -eq 1 ]; then
+              [ -f local.properties ] && backup local.properties
+              [ -f local.properties ] && sed -i '/^[[:space:]]*sdk\.dir=/d' local.properties
+              printf 'sdk.dir=%s\n' "$SDK" >> local.properties
+              echo "  local.properties: sdk.dir=$SDK"
+              CHANGED=$((CHANGED + 1))
+            fi
+
+            # 2. Bring the EFFECTIVE compileSdk/targetSdk down to what the ARM-native aapt2 can read.
+            #
+            #    "Effective" is the point. A build script that reads a Gradle property before falling
+            #    back to the version catalog is already telling us where a local override belongs, so
+            #    the fix is one line in gradle.properties and the catalog keeps the value a release
+            #    build uses. Rewriting the catalog instead would quietly lower the shipped targetSdk,
+            #    which Play rejects. Only a project with a hardcoded literal gets its script edited,
+            #    because there is nowhere else for the value to live.
+            gradle_prop() {
+              esc=$(printf '%s' "$1" | sed 's/\./\\./g')
+              V=$(sed -n -E "s/^[[:space:]]*$esc[[:space:]]*=[[:space:]]*(.*)$/\1/p" gradle.properties 2>/dev/null | tail -1 | tr -d '\r')
+              [ -n "$V" ] || V=$(sed -n -E "s/^[[:space:]]*$esc[[:space:]]*=[[:space:]]*(.*)$/\1/p" "$HOME/.gradle/gradle.properties" 2>/dev/null | tail -1 | tr -d '\r')
+              printf '%s' "$V"
+            }
+            catalog_version() {
+              for k in "$1" "$(printf '%s' "$1" | tr '.' '-')"; do
+                V=$(sed -n -E "s/^[[:space:]]*$k[[:space:]]*=[[:space:]]*\"([^\"]+)\".*/\1/p" gradle/libs.versions.toml 2>/dev/null | head -1)
+                [ -n "$V" ] && { printf '%s' "$V"; return; }
+              done
+            }
+            resolve_sdk() {
+              SDK_VALUE=""; SDK_SOURCE=""; SDK_PROP=""
+              WIN=$(grep -m1 -A2 -E "(^|[^A-Za-z])$2[[:space:]]*=" "$1" 2>/dev/null | tr '\n' ' ')
+              [ -n "$WIN" ] || return 1
+              SDK_PROP=$(printf '%s' "$WIN" | sed -n -E 's/.*(findProperty|gradleProperty|property)\([[:space:]]*"([^"]+)".*/\2/p')
+              if [ -n "$SDK_PROP" ]; then
+                V=$(gradle_prop "$SDK_PROP")
+                case "$V" in ''|*[!0-9]*) ;; *) SDK_VALUE="$V"; SDK_SOURCE="property"; return 0 ;; esac
+              fi
+              CAT=$(printf '%s' "$WIN" | sed -n -E 's/.*libs\.versions\.([A-Za-z0-9_.-]+)\.get\(\).*/\1/p')
+              if [ -n "$CAT" ]; then
+                V=$(catalog_version "$CAT")
+                case "$V" in ''|*[!0-9]*) ;; *) SDK_VALUE="$V"; SDK_SOURCE="catalog"; return 0 ;; esac
+              fi
+              V=$(printf '%s' "$WIN" | sed -n -E "s/.*$2[[:space:]]*=[[:space:]]*\"?([0-9]+)\"?.*/\1/p")
+              case "$V" in ''|*[!0-9]*) return 1 ;; *) SDK_VALUE="$V"; SDK_SOURCE="literal"; return 0 ;; esac
+            }
+            # Set Gradle property $1 to $2 in the project's gradle.properties, replacing any line
+            # already declaring it.
+            set_gradle_prop() {
+              [ -f gradle.properties ] && backup gradle.properties
+              esc=$(printf '%s' "$1" | sed 's/\./\\./g')
+              [ -f gradle.properties ] && sed -i -E "/^[[:space:]]*$esc[[:space:]]*=/d" gradle.properties
+              printf '%s=%s\n' "$1" "$2" >> gradle.properties
+              echo "  gradle.properties: $1=$2"
+              CHANGED=$((CHANGED + 1))
+            }
+            if [ -n "$CEILING" ]; then
+              SCRIPTS=$(grep -rl $SKIP -E '(^|[^A-Za-z])(compileSdk|targetSdk)[[:space:]]*=' --include='build.gradle' --include='build.gradle.kts' . 2>/dev/null)
+              for f in $SCRIPTS; do
+                SAVED=0
+                for key in compileSdk targetSdk; do
+                  resolve_sdk "$f" "$key" || continue
+                  [ "$SDK_VALUE" -gt "$CEILING" ] || continue
+                  if [ -n "$SDK_PROP" ]; then
+                    set_gradle_prop "$SDK_PROP" "$CEILING"
+                  elif [ "$SDK_SOURCE" = "literal" ]; then
+                    [ "$SAVED" -eq 1 ] || { backup "$f"; SAVED=1; }
+                    sed -i -E "s/($key[[:space:]]*=[[:space:]]*\"?)$SDK_VALUE(\"?)/\1$CEILING\2/g" "$f"
+                    echo "  $f: $key $SDK_VALUE -> $CEILING"
+                    CHANGED=$((CHANGED + 1))
+                  else
+                    echo "  Still manual: $f reads $key from the version catalog with no property to override."
+                    echo "    Lowering gradle/libs.versions.toml would lower it for release builds too."
+                  fi
+                done
+              done
+            else
+              echo "  (compileSdk left alone: the SDK recorded no ceiling; reinstall the android-sdk toolchain.)"
+            fi
+
+            # 3. A wrapper checked out without its exec bit. J Code runs `bash gradlew` so this is not
+            #    what breaks it here, but everything else that shells out to ./gradlew wants it.
+            if [ -f gradlew ] && [ ! -x gradlew ]; then
+              chmod +x gradlew && echo "  gradlew: made executable" && CHANGED=$((CHANGED + 1))
+            fi
+
+            echo
+            if [ "$CHANGED" -eq 0 ]; then
+              rmdir "$BK" 2>/dev/null
+              echo "Nothing to change. Run 'Check this project builds here' for what is left."
+            else
+              echo "$CHANGED change(s). Originals are in $BK. Review with 'git diff' before committing."
+            fi
+            if [ -f gradlew ] && [ ! -f gradle/wrapper/gradle-wrapper.jar ]; then
+              echo "Still manual: gradle/wrapper/gradle-wrapper.jar is missing. Restore it with: gradle wrapper"
+            fi
+
+    # --- the everyday Gradle tasks -------------------------------------------
+    #
+    # Gated on a build script rather than on `gradlew`: a repository whose gradle-wrapper.jar was
+    # gitignored still has one, and is exactly the clone that needs these offered rather than told it
+    # is not a Gradle project. Each falls back to the runtime's Gradle when there is no wrapper, and
+    # runs the wrapper as `bash gradlew` because a checkout can arrive without its exec bit.
+    #
+    # J Code's own detection covers assembleDebug, per application module, so these start where it
+    # stops rather than duplicating it.
     - id: android-assemble-release
       label: Assemble release APK
-      requires: [gradlew]
+      kind: build
+      requires: ["build.gradle*"]
       terminals:
         - label: Build
-          command: cd {{projectDir}} && ./gradlew assembleRelease
+          command: |
+            cd {{projectDir}} || exit 1
+            if [ -f gradlew ]; then bash gradlew assembleRelease; else gradle assembleRelease; fi
+
+    - id: android-bundle-release
+      label: Bundle release AAB
+      kind: build
+      requires: ["build.gradle*"]
+      terminals:
+        - label: Build
+          command: |
+            cd {{projectDir}} || exit 1
+            if [ -f gradlew ]; then bash gradlew bundleRelease; else gradle bundleRelease; fi
 
     - id: android-install-debug
-      label: Install debug build on device
-      requires: [gradlew]
+      label: Install debug build on the selected device
+      kind: build
+      requires: ["build.gradle*"]
       terminals:
         - label: Install
-          command: cd {{projectDir}} && ./gradlew installDebug
+          command: |
+            cd {{projectDir}} || exit 1
+            if [ -f gradlew ]; then bash gradlew installDebug; else gradle installDebug; fi
 
     - id: android-unit-tests
       label: Run unit tests
-      requires: [gradlew]
+      kind: build
+      requires: ["build.gradle*"]
       terminals:
         - label: Test
-          command: cd {{projectDir}} && ./gradlew testDebugUnitTest
+          command: |
+            cd {{projectDir}} || exit 1
+            if [ -f gradlew ]; then bash gradlew testDebugUnitTest; else gradle testDebugUnitTest; fi
+
+    - id: android-lint
+      label: Run lint
+      kind: build
+      requires: ["build.gradle*"]
+      terminals:
+        - label: Lint
+          command: |
+            cd {{projectDir}} || exit 1
+            if [ -f gradlew ]; then bash gradlew lintDebug; else gradle lintDebug; fi
 
     - id: android-clean
       label: Clean build outputs
-      requires: [gradlew]
+      kind: build
+      requires: ["build.gradle*"]
       terminals:
         - label: Clean
-          command: cd {{projectDir}} && ./gradlew clean
+          command: |
+            cd {{projectDir}} || exit 1
+            if [ -f gradlew ]; then bash gradlew clean; else gradle clean; fi
 
 templates:
   - android-app
