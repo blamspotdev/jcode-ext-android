@@ -38,7 +38,7 @@ contributes:
     - id: android-doctor
       label: Check this project builds here
       kind: build
-      requires: [gradlew]
+      requires: ["build.gradle*"]
       terminals:
         - label: Check
           command: |
@@ -80,19 +80,23 @@ contributes:
               note "No numeric compileSdk found in any build script or version catalog."
             elif [ -n "$CEILING" ] && [ "$MAX" -gt "$CEILING" ]; then
               bad "compileSdk $MAX is above this device's ceiling of $CEILING; resource linking fails with 'RES_TABLE_TYPE_TYPE entry offsets overlap actual entry data'."
-              grep -n -E 'compileSdk[A-Za-z]*[[:space:]]*=?[[:space:]]*"?[0-9]+' $SCRIPTS 2>/dev/null | sed 's/^/      /'
+              # -H because grep drops the filename when there is only one match target, and which
+              # file to edit is the whole point of printing these.
+              grep -Hn -E 'compileSdk[A-Za-z]*[[:space:]]*=?[[:space:]]*"?[0-9]+' $SCRIPTS 2>/dev/null | sed 's/^/      /'
             else
               ok "compileSdk $MAX"
             fi
 
             echo "- Gradle wrapper"
-            if [ ! -f gradlew ]; then
-              bad "No ./gradlew here. Create one with: gradle wrapper --gradle-version 8.9"
-            elif [ ! -f gradle/wrapper/gradle-wrapper.jar ]; then
-              bad "gradle/wrapper/gradle-wrapper.jar is missing (often gitignored), so ./gradlew cannot start. Restore it with: gradle wrapper"
-            else
+            if [ -f gradlew ] && [ ! -f gradle/wrapper/gradle-wrapper.jar ]; then
+              bad "gradle/wrapper/gradle-wrapper.jar is missing (often gitignored), so gradlew cannot start. Restore it with: gradle wrapper"
+            elif [ -f gradlew ]; then
               WRAP=$(sed -n -E 's/^distributionUrl=.*gradle-([0-9.]+)-(bin|all)\.zip.*/\1/p' gradle/wrapper/gradle-wrapper.properties 2>/dev/null)
               ok "Wrapper Gradle ${WRAP:-(version not readable)}"
+            elif command -v gradle >/dev/null 2>&1; then
+              note "No wrapper, so builds use the runtime's Gradle. That is usually newer than the AGP a project pins; if configuration fails on the AGP version, pin one: gradle wrapper --gradle-version 8.9"
+            else
+              bad "No gradlew and no gradle in the runtime. Install the 'android-sdk' toolchain, which brings Gradle."
             fi
 
             echo "- local.properties"
@@ -147,7 +151,7 @@ contributes:
     - id: android-doctor-fix
       label: Apply build fixes
       kind: build
-      requires: [gradlew]
+      requires: ["build.gradle*"]
       terminals:
         - label: Fix
           command: |
@@ -227,56 +231,72 @@ contributes:
 
     # --- the everyday Gradle tasks -------------------------------------------
     #
-    # `gradlew` rather than a build script: it is the one file every Gradle project has under either
-    # DSL, and it is what each of these invokes. J Code's own detection covers assembleDebug, so these
-    # start where it stops.
+    # Gated on a build script rather than on `gradlew`: a repository whose gradle-wrapper.jar was
+    # gitignored still has one, and is exactly the clone that needs these offered rather than told it
+    # is not a Gradle project. Each falls back to the runtime's Gradle when there is no wrapper, and
+    # runs the wrapper as `bash gradlew` because a checkout can arrive without its exec bit.
+    #
+    # J Code's own detection covers assembleDebug, per application module, so these start where it
+    # stops rather than duplicating it.
     - id: android-assemble-release
       label: Assemble release APK
       kind: build
-      requires: [gradlew]
+      requires: ["build.gradle*"]
       terminals:
         - label: Build
-          command: cd {{projectDir}} && ./gradlew assembleRelease
+          command: |
+            cd {{projectDir}} || exit 1
+            if [ -f gradlew ]; then bash gradlew assembleRelease; else gradle assembleRelease; fi
 
     - id: android-bundle-release
       label: Bundle release AAB
       kind: build
-      requires: [gradlew]
+      requires: ["build.gradle*"]
       terminals:
         - label: Build
-          command: cd {{projectDir}} && ./gradlew bundleRelease
+          command: |
+            cd {{projectDir}} || exit 1
+            if [ -f gradlew ]; then bash gradlew bundleRelease; else gradle bundleRelease; fi
 
     - id: android-install-debug
       label: Install debug build on the selected device
       kind: build
-      requires: [gradlew]
+      requires: ["build.gradle*"]
       terminals:
         - label: Install
-          command: cd {{projectDir}} && ./gradlew installDebug
+          command: |
+            cd {{projectDir}} || exit 1
+            if [ -f gradlew ]; then bash gradlew installDebug; else gradle installDebug; fi
 
     - id: android-unit-tests
       label: Run unit tests
       kind: build
-      requires: [gradlew]
+      requires: ["build.gradle*"]
       terminals:
         - label: Test
-          command: cd {{projectDir}} && ./gradlew testDebugUnitTest
+          command: |
+            cd {{projectDir}} || exit 1
+            if [ -f gradlew ]; then bash gradlew testDebugUnitTest; else gradle testDebugUnitTest; fi
 
     - id: android-lint
       label: Run lint
       kind: build
-      requires: [gradlew]
+      requires: ["build.gradle*"]
       terminals:
         - label: Lint
-          command: cd {{projectDir}} && ./gradlew lintDebug
+          command: |
+            cd {{projectDir}} || exit 1
+            if [ -f gradlew ]; then bash gradlew lintDebug; else gradle lintDebug; fi
 
     - id: android-clean
       label: Clean build outputs
       kind: build
-      requires: [gradlew]
+      requires: ["build.gradle*"]
       terminals:
         - label: Clean
-          command: cd {{projectDir}} && ./gradlew clean
+          command: |
+            cd {{projectDir}} || exit 1
+            if [ -f gradlew ]; then bash gradlew clean; else gradle clean; fi
 
 templates:
   - android-app
