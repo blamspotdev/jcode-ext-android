@@ -582,3 +582,16 @@ entry:
   manifest: extension.yaml
   ui: null
   libs: []
+  # The layout designer. Loaded on demand, in JCode's own process, and only when a file it claims is
+  # opened in preview — see designer/ for what it is and NativeExtensionLoader for how it gets in.
+  native:
+    apk: lib/designer.apk
+    class: dev.jcode.ext.android.designer.DesignerExtension
+    abi: 1
+    claims:
+      # A layout is decided by where it lives: AndroidManifest.xml is also XML and is not a layout.
+      - fileTypes: [xml]
+        pathContains: res/layout
+      # A composable cannot be told from any other Kotlin file by its path, so ask the file.
+      - fileTypes: [kt]
+        contains: "@Composable"

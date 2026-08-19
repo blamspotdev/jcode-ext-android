@@ -72,4 +72,21 @@ dependencies {
         exclude(group = "androidx.appcompat")
         exclude(group = "androidx.core")
     }
+
+    // The parsers are plain Kotlin and are the part most likely to be wrong on input nobody
+    // anticipated, so they are tested on the JVM rather than by deploying to a device and looking.
+    //
+    // `compileOnly` does not reach the test compile classpath, and the Compose compiler plugin
+    // refuses to run without the runtime in front of it — so the same set is repeated here. These
+    // are test-only and never enter the APK, so the ABI rule above is not weakened by them.
+    testImplementation(kotlin("test"))
+    testImplementation(files("libs/jcode-ext-api-abi1.jar"))
+    testImplementation(platform("androidx.compose:compose-bom:2025.01.00"))
+    testImplementation("androidx.compose.runtime:runtime")
+    testImplementation("androidx.compose.ui:ui")
+    testImplementation("androidx.compose.foundation:foundation")
+    testImplementation("androidx.compose.material3:material3")
+    testImplementation("androidx.compose.material:material-icons-extended")
+    testImplementation("androidx.core:core-ktx:1.15.0")
+    testImplementation("androidx.appcompat:appcompat:1.7.0")
 }

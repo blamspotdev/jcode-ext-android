@@ -33,17 +33,20 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.layout.LayoutCoordinates
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInRoot
+import androidx.compose.ui.unit.Density
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -62,23 +65,23 @@ internal val DEVICES = listOf(
     DeviceSize("Tablet", 800, 1280),
 )
 
-private val COMMON_ATTRS = listOf(
-    "android:id", "android:layout_width", "android:layout_height",
-    "android:layout_margin", "android:padding", "android:background", "android:visibility",
-)
-private val TEXT_ATTRS =
-    listOf("android:text", "android:textSize", "android:textColor", "android:textStyle", "android:gravity")
-
 /** Which side panel the narrow layout is showing. */
 private enum class PanelTab(val label: String) { Layers("Layers"), Palette("Palette"), Properties("Properties") }
 
 @Composable
 internal fun DesignerScreen(
     source: String,
+    file: File,
     projectDir: File?,
     onSource: (String) -> Unit,
 ) {
-    val document = remember(source) { LayoutDocument.parse(source) }
+    val format = remember(file, source) { DesignFormat.of(file, source) }
+    val document = remember(source, format) {
+        when (format) {
+            DesignFormat.Compose -> ComposeDocument.parse(source)
+            else -> LayoutDocument.parse(source)
+        }
+    }
     val resources = remember(projectDir, source) { ResourceTable.read(projectDir) }
     var selectedPath by remember { mutableStateOf<String?>(null) }
     var device by remember { mutableStateOf(DEVICES.first()) }
@@ -96,7 +99,11 @@ internal fun DesignerScreen(
     if (root == null) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             Text(
-                "This file has no layout element yet.",
+                when (format) {
+                    DesignFormat.Compose -> "No composable UI in this file yet."
+                    null -> "The designer has nothing to show for this kind of file."
+                    else -> "This file has no layout element yet."
+                },
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -107,12 +114,12 @@ internal fun DesignerScreen(
     val flat = remember(document) { root.flatten() }
     val selected = flat.firstOrNull { elementPath(root, it) == selectedPath }
 
-    // Inserting goes through the palette item so its namespaces come with it — see
-    // LayoutDocument.withNamespaces for why a Material widget can otherwise break the build.
-    fun insert(item: PaletteItem, into: LayoutDocument.Element, at: Int = -1) {
-        val withNs = LayoutDocument.parse(document.withNamespaces(item.namespaces))
-        val target = withNs.root?.let { elementAt(it, elementPath(root, into).orEmpty()) } ?: return
-        onSource(if (at < 0) withNs.withChild(target, item.xml) else withNs.withChildAt(target, at, item.xml))
+    // Inserting goes through the palette item so whatever it needs declared comes with it — see
+    // DesignDocument.withPrerequisites for why a Material widget can otherwise break the build.
+    fun insert(item: PaletteItem, into: DesignElement, at: Int = -1) {
+        val ready = document.reparse(document.withPrerequisites(item))
+        val target = ready.root?.let { elementAt(it, elementPath(root, into).orEmpty()) } ?: return
+        onSource(if (at < 0) ready.withChild(target, item.xml) else ready.withChildAt(target, at, item.xml))
         tab = PanelTab.Properties
     }
 
@@ -123,7 +130,7 @@ internal fun DesignerScreen(
             document.text.substring(moving.range.first, (moving.range.last + 1).coerceAtMost(document.text.length)),
             moving.indent,
         )
-        val removed = LayoutDocument.parse(document.without(moving))
+        val removed = document.reparse(document.without(moving))
         val containerPath = pathAfterRemoval(to.containerPath, from) ?: return
         val container = removed.root?.let { elementAt(it, containerPath) } ?: return
         onSource(removed.withChildAt(container, to.index, xml))
@@ -173,6 +180,7 @@ internal fun DesignerScreen(
             ) {
                 DesignCanvas(
                     root = root,
+                    format = document.format,
                     resources = resources,
                     device = device,
                     dark = dark,
@@ -221,6 +229,7 @@ internal fun DesignerScreen(
                         Divider()
                         if (selected == null) {
                             PalettePanel(
+                                format = document.format,
                                 onInsert = { insert(it, root) },
                         onDragStart = { payload, at -> drag = DragState(payload, at) },
                         onDragMove = { at -> drag = drag?.copy(position = at) },
@@ -266,6 +275,7 @@ internal fun DesignerScreen(
                                 modifier = Modifier.fillMaxSize(),
                             )
                             PanelTab.Palette -> PalettePanel(
+                                format = document.format,
                                 onInsert = { insert(it, selected ?: root) },
                                 onDragStart = { payload, at -> drag = DragState(payload, at) },
                                 onDragMove = { at -> drag = drag?.copy(position = at) },
@@ -343,7 +353,8 @@ private fun VerticalRule() {
  */
 @Composable
 private fun DesignCanvas(
-    root: LayoutDocument.Element,
+    root: DesignElement,
+    format: DesignFormat,
     resources: ResourceTable,
     device: DeviceSize,
     dark: Boolean,
@@ -391,6 +402,42 @@ private fun DesignCanvas(
                 modifier = Modifier.fillMaxWidth().weight(1f)
                     .onGloballyPositioned { canvasCoords = it },
             ) {
+            if (format == DesignFormat.Compose) {
+                // Drawn by the real Compose runtime the plugin is already living in — see
+                // ComposeCanvas for why that is the whole trick.
+                val bounds = remember(root) { ComposeBounds().also { ref.renderer = it } }
+                val selectedElement = selectedPath
+                    ?.let { path -> root.flatten().firstOrNull { elementPath(root, it) == path } }
+                CompositionLocalProvider(LocalDensity provides Density(screenDensity * effective)) {
+                    DesignTheme(dark) {
+                        Surface(
+                            modifier = Modifier.fillMaxSize().onGloballyPositioned { coords ->
+                                val at = coords.positionInRoot()
+                                bounds.origin = at
+                                // The composable function itself, so a drop on empty canvas has
+                                // somewhere to land: its body is the container of last resort.
+                                bounds.record(
+                                    root,
+                                    Rect(
+                                        at.x,
+                                        at.y,
+                                        at.x + coords.size.width,
+                                        at.y + coords.size.height,
+                                    ),
+                                    acceptsChildren = true,
+                                )
+                            },
+                            color = if (dark) Color(0xFF121212) else Color.White,
+                        ) {
+                            Column(Modifier.fillMaxSize()) {
+                                root.children.forEach {
+                                    ComposeNode(it, bounds, showBounds, selectedElement)
+                                }
+                            }
+                        }
+                    }
+                }
+            } else {
             AndroidView(
                 modifier = Modifier.fillMaxSize(),
                 factory = { ctx -> FrameLayout(ctx) },
@@ -438,6 +485,7 @@ private fun DesignCanvas(
                     ref.renderer = built
                 },
             )
+            }
 
             // Gestures live in Compose, over the inflated views rather than inside them: a child
             // that is not clickable never receives a touch, and making every widget clickable to fix
@@ -447,11 +495,11 @@ private fun DesignCanvas(
                     key = root,
                     onTap = { at ->
                         val built = ref.renderer ?: return@canvasGestures
-                        onSelect(hitTest(built, root, at.x.toInt(), at.y.toInt())?.let { elementPath(root, it) })
+                        onSelect(hitTest(built, root, at)?.let { elementPath(root, it) })
                     },
                     onDragStart = { at ->
                         val built = ref.renderer ?: return@canvasGestures
-                        val hit = hitTest(built, root, at.x.toInt(), at.y.toInt())
+                        val hit = hitTest(built, root, at)
                         val path = hit?.let { elementPath(root, it) }
                         // The root has nowhere to go, so a drag on empty canvas is not a drag.
                         if (hit != null && !path.isNullOrEmpty()) {
@@ -533,18 +581,15 @@ private fun SystemBar(height: androidx.compose.ui.unit.Dp, colour: Color, label:
 }
 
 /** Deepest element whose view contains the point — what a tap on overlapping widgets should pick. */
-private fun hitTest(
-    renderer: LayoutRenderer,
-    root: LayoutDocument.Element,
-    x: Int,
-    y: Int,
-): LayoutDocument.Element? {
-    var best: LayoutDocument.Element? = null
+private fun hitTest(canvas: CanvasBounds, root: DesignElement, at: Offset): DesignElement? {
+    var best: DesignElement? = null
     var bestDepth = -1
-    fun walk(element: LayoutDocument.Element, depth: Int) {
-        val view = renderer.views[element] ?: return
-        val (left, top) = renderer.offsetOf(view)
-        if (x >= left && x < left + view.width && y >= top && y < top + view.height && depth > bestDepth) {
+    fun walk(element: DesignElement, depth: Int) {
+        // A node with no box still has children with boxes — a Compose `Row` that only groups, or
+        // an element the canvas skipped. Descending anyway costs nothing; stopping would make its
+        // whole subtree unselectable.
+        val box = canvas.boundsOf(element)
+        if (box != null && box.contains(at) && depth > bestDepth) {
             best = element
             bestDepth = depth
         }
@@ -561,7 +606,7 @@ private fun hitTest(
  * and plenty of widgets have no id. The path survives an attribute edit, which is the case that
  * matters — the user changes a colour and expects the thing to stay selected.
  */
-internal fun elementPath(root: LayoutDocument.Element, target: LayoutDocument.Element): String? {
+internal fun elementPath(root: DesignElement, target: DesignElement): String? {
     if (root === target) return ""
     root.children.forEachIndexed { index, child ->
         elementPath(child, target)?.let { return "$index.$it" }
@@ -570,7 +615,7 @@ internal fun elementPath(root: LayoutDocument.Element, target: LayoutDocument.El
 }
 
 /** The element a [elementPath] names, in a freshly parsed tree. */
-internal fun elementAt(root: LayoutDocument.Element, path: String): LayoutDocument.Element? {
+internal fun elementAt(root: DesignElement, path: String): DesignElement? {
     if (path.isEmpty()) return root
     var current = root
     path.trim('.').split('.').filter { it.isNotEmpty() }.forEach { part ->
@@ -586,8 +631,8 @@ private fun Color.toArgb(): Int = android.graphics.Color.argb(
 
 @Composable
 private fun PropertiesPanel(
-    document: LayoutDocument,
-    element: LayoutDocument.Element,
+    document: DesignDocument,
+    element: DesignElement,
     onSource: (String) -> Unit,
     onDelete: () -> Unit,
     onInsertChild: (PaletteItem) -> Unit,
@@ -597,11 +642,7 @@ private fun PropertiesPanel(
 ) {
     Text(element.tag.substringAfterLast('.'), style = MaterialTheme.typography.titleSmall)
 
-    val isTextish = listOf("TextView", "Button", "EditText", "CheckBox", "Switch")
-        .any { element.tag.endsWith(it) }
-    val attrs = COMMON_ATTRS + if (isTextish) TEXT_ATTRS else emptyList()
-
-    attrs.forEach { name ->
+    document.propertiesFor(element).forEach { name ->
         val current = element.attributes.firstOrNull { it.name == name }?.value.orEmpty()
         var draft by remember(element.range.first, name, current) { mutableStateOf(current) }
         OutlinedTextField(
@@ -631,6 +672,7 @@ private fun PropertiesPanel(
 
     Text("Add inside this widget", style = MaterialTheme.typography.labelMedium)
     PalettePanel(
+        format = document.format,
         onInsert = onInsertChild,
         onDragStart = onDragStart,
         onDragMove = onDragMove,

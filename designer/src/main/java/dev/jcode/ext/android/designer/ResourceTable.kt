@@ -115,7 +115,7 @@ internal class ResourceTable private constructor(
         }
 
         /** The text between an element's tags — the scanner records ranges, not character data. */
-        private fun bodyOf(text: String, e: LayoutDocument.Element): String {
+        private fun bodyOf(text: String, e: DesignElement): String {
             if (e.selfClosing) return ""
             val start = (e.openTagEnd + 1).coerceAtMost(text.length)
             val close = text.lastIndexOf("</", e.range.last).takeIf { it > start } ?: return ""

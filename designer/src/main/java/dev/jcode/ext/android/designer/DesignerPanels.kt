@@ -131,7 +131,7 @@ private fun ToolIcon(icon: androidx.compose.ui.graphics.vector.ImageVector, labe
  */
 @Composable
 internal fun LayerTree(
-    root: LayoutDocument.Element,
+    root: DesignElement,
     selectedPath: String?,
     onSelect: (String) -> Unit,
     onDragStart: (DragPayload, Offset) -> Unit,
@@ -152,8 +152,8 @@ internal fun LayerTree(
 
 @Composable
 private fun TreeRows(
-    root: LayoutDocument.Element,
-    element: LayoutDocument.Element,
+    root: DesignElement,
+    element: DesignElement,
     depth: Int,
     selectedPath: String?,
     onSelect: (String) -> Unit,
@@ -218,6 +218,7 @@ private fun TreeRows(
  */
 @Composable
 internal fun PalettePanel(
+    format: DesignFormat,
     onInsert: (PaletteItem) -> Unit,
     onDragStart: (DragPayload, Offset) -> Unit,
     onDragMove: (Offset) -> Unit,
@@ -233,7 +234,7 @@ internal fun PalettePanel(
     scrollable: Boolean = false,
 ) {
     var query by remember { mutableStateOf("") }
-    val results = remember(query) { Palette.search(query) }
+    val results = remember(query, format) { Palette.search(query, format) }
 
     Column(
         modifier = modifier
@@ -250,7 +251,7 @@ internal fun PalettePanel(
             modifier = Modifier.fillMaxWidth(),
         )
 
-        Palette.categories.forEach { category ->
+        Palette.categories(format).forEach { category ->
             val inCategory = results.filter { it.category == category }
             if (inCategory.isEmpty()) return@forEach
             Text(

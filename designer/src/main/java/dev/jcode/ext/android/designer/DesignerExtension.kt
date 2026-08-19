@@ -53,6 +53,7 @@ class DesignerExtension : JCodeNativeExtension {
 
         DesignerScreen(
             source = source,
+            file = File(path),
             projectDir = projectDir,
             onSource = { updated ->
                 if (updated != source) {

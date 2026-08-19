@@ -10,6 +10,7 @@ import android.text.TextUtils
 import android.util.TypedValue
 import android.view.Gravity
 import android.view.View
+import androidx.compose.ui.geometry.Rect
 import android.view.ViewGroup
 import android.widget.Button
 import android.widget.CheckBox
@@ -56,7 +57,7 @@ internal class LayoutRenderer(
      * needs no inverse transform, and there is nothing to clip.
      */
     private val density: Float,
-) {
+) : CanvasBounds {
 
     /**
      * What a widget with no explicit colour is drawn in.
@@ -69,13 +70,13 @@ internal class LayoutRenderer(
     private val defaultTextColor: Int = if (dark) 0xFFECEFF4.toInt() else 0xDE000000.toInt()
 
     /** Every view built, by the element it came from — the hit test and the outline read this. */
-    val views = LinkedHashMap<LayoutDocument.Element, View>()
+    val views = LinkedHashMap<DesignElement, View>()
 
     /** The view the layout's root element became, and the origin every offset here is measured from. */
     var rootView: View? = null
         private set
 
-    fun render(root: LayoutDocument.Element): View {
+    fun render(root: DesignElement): View {
         views.clear()
         return build(root, parentTag = null).also { rootView = it }
     }
@@ -87,6 +88,20 @@ internal class LayoutRenderer(
      * and the resulting coordinates are then in a different frame from the touch positions they are
      * compared against — which does not fail loudly, it just means nothing is ever under the finger.
      */
+    override fun boundsOf(element: DesignElement): Rect? {
+        val view = views[element] ?: return null
+        val (left, top) = offsetOf(view)
+        return Rect(
+            left.toFloat(),
+            top.toFloat(),
+            (left + view.width).toFloat(),
+            (top + view.height).toFloat(),
+        )
+    }
+
+    /** A ViewGroup, which on the Android side is exactly what "can take children" means. */
+    override fun acceptsChildren(element: DesignElement): Boolean = views[element] is ViewGroup
+
     fun offsetOf(view: View): Pair<Int, Int> {
         var x = 0
         var y = 0
@@ -99,7 +114,7 @@ internal class LayoutRenderer(
         return x to y
     }
 
-    private fun build(element: LayoutDocument.Element, parentTag: String?): View {
+    private fun build(element: DesignElement, parentTag: String?): View {
         val view = create(element)
         views[element] = view
 
@@ -116,7 +131,7 @@ internal class LayoutRenderer(
         return view
     }
 
-    private fun create(element: LayoutDocument.Element): View = when (element.tag.substringAfterLast('.')) {
+    private fun create(element: DesignElement): View = when (element.tag.substringAfterLast('.')) {
         "LinearLayout" -> LinearLayout(context).apply {
             orientation = if (element.value("orientation") == "vertical") {
                 LinearLayout.VERTICAL
@@ -165,9 +180,9 @@ internal class LayoutRenderer(
     }
 
     /** True when this element is drawn as itself rather than as a placeholder. */
-    fun isReal(element: LayoutDocument.Element): Boolean = views[element] !is PlaceholderView
+    fun isReal(element: DesignElement): Boolean = views[element] !is PlaceholderView
 
-    private fun applyCommon(element: LayoutDocument.Element, view: View) {
+    private fun applyCommon(element: DesignElement, view: View) {
         element.attributes.forEach { attr ->
             if (attr.prefix == "tools") return@forEach
             when (attr.local) {
@@ -211,7 +226,7 @@ internal class LayoutRenderer(
         }
     }
 
-    private fun layoutParams(element: LayoutDocument.Element, parentTag: String?): ViewGroup.LayoutParams {
+    private fun layoutParams(element: DesignElement, parentTag: String?): ViewGroup.LayoutParams {
         val w = size(element.value("layout_width"))
         val h = size(element.value("layout_height"))
 
@@ -251,7 +266,7 @@ internal class LayoutRenderer(
      * stable id derived from the name. Sibling constraints therefore work, which is what the layout
      * is actually describing.
      */
-    private fun applyConstraints(parent: LayoutDocument.Element, layout: ConstraintLayout) {
+    private fun applyConstraints(parent: DesignElement, layout: ConstraintLayout) {
         val set = ConstraintSet()
         set.clone(layout)
         parent.children.forEach { child ->

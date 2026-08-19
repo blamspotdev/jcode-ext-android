@@ -13,50 +13,24 @@ package dev.jcode.ext.android.designer
  * because it is intolerant of the half-typed file a designer is routinely looking at. This one keeps
  * going and returns what it understood.
  */
-internal class LayoutDocument private constructor(val text: String, val root: Element?) {
+internal class LayoutDocument private constructor(
+    override val text: String,
+    override val root: DesignElement?,
+) : DesignDocument {
 
-    /** One attribute, and exactly where its name, value and whole `name="value"` span sit. */
-    class Attribute(
-        val name: String,
-        val value: String,
-        /** The value's characters, excluding the quotes. */
-        val valueRange: IntRange,
-        /** `name="value"` in full, for removal. */
-        val range: IntRange,
-    ) {
-        /** `android`, `app`, `tools` … or "" for an unprefixed name. */
-        val prefix: String get() = name.substringBefore(':', "")
+    override val format: DesignFormat get() = DesignFormat.AndroidXml
 
-        /** The name without its prefix — what the renderer and the properties panel match on. */
-        val local: String get() = name.substringAfter(':')
-    }
+    override fun reparse(text: String): DesignDocument = parse(text)
 
-    class Element(
-        val tag: String,
-        val attributes: List<Attribute>,
-        val children: List<Element>,
-        /** The whole element, open tag through close tag. */
-        val range: IntRange,
-        /** Index of the `>` (or the `/` of `/>`) that ends the open tag — where a new attribute goes. */
-        val openTagEnd: Int,
-        val selfClosing: Boolean,
-        /** The element's own indentation, so inserted children line up with the file's style. */
-        val indent: String,
-    ) {
-        fun attr(local: String): Attribute? = attributes.firstOrNull { it.local == local }
-        fun value(local: String): String? = attr(local)?.value
-
-        /** Depth-first, this element first — the order a hit test wants to consider them in. */
-        fun flatten(): List<Element> = buildList {
-            add(this@Element)
-            children.forEach { addAll(it.flatten()) }
-        }
+    override fun propertiesFor(element: DesignElement): List<String> {
+        val textish = TEXT_TAGS.any { element.tag.endsWith(it) }
+        return COMMON_ATTRS + if (textish) TEXT_ATTRS else emptyList()
     }
 
     // ---- edits: every one returns the new file text, spliced ----
 
     /** Set (or add) an attribute, returning the new text — or the text unchanged if nothing moved. */
-    fun withAttribute(element: Element, name: String, value: String): String {
+    override fun withAttribute(element: DesignElement, name: String, value: String): String {
         val existing = element.attributes.firstOrNull { it.name == name }
         if (existing != null) {
             if (existing.value == value) return text
@@ -75,7 +49,7 @@ internal class LayoutDocument private constructor(val text: String, val root: El
     }
 
     /** Remove an attribute along with the whitespace that introduced it. */
-    fun withoutAttribute(element: Element, name: String): String {
+    override fun withoutAttribute(element: DesignElement, name: String): String {
         val existing = element.attributes.firstOrNull { it.name == name } ?: return text
         var start = existing.range.first
         while (start > 0 && text[start - 1].isWhitespace() && text[start - 1] != '\n') start--
@@ -84,7 +58,7 @@ internal class LayoutDocument private constructor(val text: String, val root: El
     }
 
     /** Insert [xml] as [parent]'s last child, indented to match. */
-    fun withChild(parent: Element, xml: String): String {
+    override fun withChild(parent: DesignElement, xml: String): String {
         val childIndent = "${parent.indent}    "
         val block = xml.trimEnd().lines().joinToString("\n") { if (it.isBlank()) it else "$childIndent$it" }
         if (parent.selfClosing) {
@@ -114,7 +88,7 @@ internal class LayoutDocument private constructor(val text: String, val root: El
      * between them — appending and letting the user sort it out afterwards would make dragging
      * useless for the one container where dragging matters most.
      */
-    fun withChildAt(parent: Element, index: Int, xml: String): String {
+    override fun withChildAt(parent: DesignElement, index: Int, xml: String): String {
         val before = parent.children.getOrNull(index) ?: return withChild(parent, xml)
         val childIndent = "${parent.indent}    "
         val block = xml.trimEnd().lines().joinToString("\n") { if (it.isBlank()) it else "$childIndent$it" }
@@ -136,7 +110,8 @@ internal class LayoutDocument private constructor(val text: String, val root: El
      * on every insert rather than assumed, because a hand-written layout often declares only
      * `android`.
      */
-    fun withNamespaces(prefixes: List<String>): String {
+    override fun withPrerequisites(item: PaletteItem): String {
+        val prefixes = item.prerequisites
         val root = root ?: return text
         var result = text
         var doc = this
@@ -151,7 +126,7 @@ internal class LayoutDocument private constructor(val text: String, val root: El
     }
 
     /** Remove an element and the blank line it left behind. */
-    fun without(element: Element): String {
+    override fun without(element: DesignElement): String {
         var start = element.range.first
         while (start > 0 && text[start - 1] != '\n') {
             if (!text[start - 1].isWhitespace()) return text.removeRange(element.range)
@@ -185,6 +160,15 @@ internal class LayoutDocument private constructor(val text: String, val root: El
 
     companion object {
 
+        private val COMMON_ATTRS = listOf(
+            "android:id", "android:layout_width", "android:layout_height",
+            "android:layout_margin", "android:padding", "android:background", "android:visibility",
+        )
+        private val TEXT_ATTRS = listOf(
+            "android:text", "android:textSize", "android:textColor", "android:textStyle", "android:gravity",
+        )
+        private val TEXT_TAGS = listOf("TextView", "Button", "EditText", "CheckBox", "Switch")
+
         /** The prefixes a layout can meaningfully declare, and what they must point at. */
         private val NAMESPACE_URIS = mapOf(
             "android" to "http://schemas.android.com/apk/res/android",
@@ -203,7 +187,7 @@ internal class LayoutDocument private constructor(val text: String, val root: El
 
         private var i = 0
 
-        fun parseRoot(): Element? {
+        fun parseRoot(): DesignElement? {
             while (true) {
                 skipTo('<')
                 if (i >= s.length) return null
@@ -216,14 +200,14 @@ internal class LayoutDocument private constructor(val text: String, val root: El
             }
         }
 
-        private fun element(): Element? {
+        private fun element(): DesignElement? {
             val start = i
             if (s.getOrNull(i) != '<') return null
             i++
             val tag = readName()
             if (tag.isEmpty()) return null
 
-            val attributes = mutableListOf<Attribute>()
+            val attributes = mutableListOf<DesignAttribute>()
             while (i < s.length) {
                 skipSpace()
                 if (i >= s.length) break
@@ -243,14 +227,14 @@ internal class LayoutDocument private constructor(val text: String, val root: El
                 val value = s.substring(valueStart, i)
                 val valueEnd = i - 1
                 if (i < s.length) i++
-                attributes += Attribute(name, unescape(value), valueStart..valueEnd, attrStart..(i - 1))
+                attributes += DesignAttribute(name, unescape(value), valueStart..valueEnd, attrStart..(i - 1))
             }
 
             val selfClosing = s.startsWith("/>", i)
             val openTagEnd = i
             i += if (selfClosing) 2 else 1
 
-            val children = mutableListOf<Element>()
+            val children = mutableListOf<DesignElement>()
             if (!selfClosing) {
                 while (i < s.length) {
                     skipTo('<')
@@ -264,7 +248,7 @@ internal class LayoutDocument private constructor(val text: String, val root: El
                 }
             }
 
-            return Element(
+            return DesignElement(
                 tag = tag,
                 attributes = attributes,
                 children = children,

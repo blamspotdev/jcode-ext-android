@@ -12,20 +12,26 @@ package dev.jcode.ext.android.designer
  * will show as an outline until you build" is workable; silently drawing a grey box the user did
  * not expect, or silently not offering the widget at all, is not.
  *
- * **Every entry carries the namespaces it needs.** Dropping a `MaterialCardView` into a layout whose
+ * **Every entry carries what it needs declared.** Dropping a `MaterialCardView` into a layout whose
  * root declares no `xmlns:app` produces a file that does not compile, and the designer would have
- * broken the build to add a widget. See [LayoutDocument.withNamespaces].
+ * broken the build to add a widget. See [DesignDocument.withPrerequisites].
  */
 internal data class PaletteItem(
     val label: String,
     val category: String,
+    /** The source this drops into the file — XML, a Compose call, a Dart widget, JSX. */
     val xml: String,
     /** False when the renderer will draw this as a labelled placeholder rather than as itself. */
     val rendersForReal: Boolean = true,
-    /** Namespace prefixes the snippet uses, so the root can be given them if it lacks them. */
-    val namespaces: List<String> = emptyList(),
+    /**
+     * What the file must already declare for this snippet to compile — an `xmlns:` prefix, an
+     * import. Handed to [DesignDocument.withPrerequisites], which knows how its language spells it.
+     */
+    val prerequisites: List<String> = emptyList(),
     /** Extra words the search should match — how someone might look for it. */
     val keywords: String = "",
+    /** The language this belongs to. A palette only ever offers the open file's own format. */
+    val format: DesignFormat = DesignFormat.AndroidXml,
 )
 
 internal object Palette {
@@ -88,7 +94,7 @@ internal object Palette {
         PaletteItem(
             "ConstraintLayout", LAYOUTS,
             container("androidx.constraintlayout.widget.ConstraintLayout"),
-            namespaces = listOf("app"),
+            prerequisites = listOf("app"),
             keywords = "constraints flat",
         ),
         PaletteItem("ScrollView", LAYOUTS, container("ScrollView"), keywords = "scroll overflow"),
@@ -121,44 +127,44 @@ internal object Palette {
         PaletteItem(
             "MaterialButton", MATERIAL,
             wrap("com.google.android.material.button.MaterialButton", "android:text=\"Button\""),
-            rendersForReal = false, namespaces = listOf("app"), keywords = "filled tonal",
+            rendersForReal = false, prerequisites = listOf("app"), keywords = "filled tonal",
         ),
         PaletteItem(
             "MaterialCardView", MATERIAL,
             container("com.google.android.material.card.MaterialCardView", "app:cardCornerRadius=\"12dp\""),
-            rendersForReal = false, namespaces = listOf("app"), keywords = "card surface",
+            rendersForReal = false, prerequisites = listOf("app"), keywords = "card surface",
         ),
         PaletteItem(
             "TextInputLayout", MATERIAL,
             container("com.google.android.material.textfield.TextInputLayout", "android:hint=\"Label\""),
-            rendersForReal = false, namespaces = listOf("app"), keywords = "outlined field form",
+            rendersForReal = false, prerequisites = listOf("app"), keywords = "outlined field form",
         ),
         PaletteItem(
             "Chip", MATERIAL,
             wrap("com.google.android.material.chip.Chip", "android:text=\"Chip\""),
-            rendersForReal = false, namespaces = listOf("app"), keywords = "tag pill",
+            rendersForReal = false, prerequisites = listOf("app"), keywords = "tag pill",
         ),
         PaletteItem(
             "FloatingActionButton", MATERIAL,
             wrap("com.google.android.material.floatingactionbutton.FloatingActionButton"),
-            rendersForReal = false, namespaces = listOf("app"), keywords = "fab action",
+            rendersForReal = false, prerequisites = listOf("app"), keywords = "fab action",
         ),
         PaletteItem(
             "BottomNavigationView", MATERIAL,
             match("com.google.android.material.bottomnavigation.BottomNavigationView"),
-            rendersForReal = false, namespaces = listOf("app"), keywords = "tabs bottom bar",
+            rendersForReal = false, prerequisites = listOf("app"), keywords = "tabs bottom bar",
         ),
         PaletteItem(
             "MaterialToolbar", MATERIAL,
             match("com.google.android.material.appbar.MaterialToolbar", "android:layout_height=\"?attr/actionBarSize\""),
-            rendersForReal = false, namespaces = listOf("app"), keywords = "app bar title",
+            rendersForReal = false, prerequisites = listOf("app"), keywords = "app bar title",
         ),
 
         // ---- AndroidX ----
         PaletteItem(
             "RecyclerView", ANDROIDX,
             container("androidx.recyclerview.widget.RecyclerView"),
-            rendersForReal = false, namespaces = listOf("app"), keywords = "list grid adapter",
+            rendersForReal = false, prerequisites = listOf("app"), keywords = "list grid adapter",
         ),
         PaletteItem(
             "ViewPager2", ANDROIDX,
@@ -173,20 +179,139 @@ internal object Palette {
         PaletteItem(
             "CoordinatorLayout", ANDROIDX,
             container("androidx.coordinatorlayout.widget.CoordinatorLayout"),
-            rendersForReal = false, namespaces = listOf("app"), keywords = "scrolling app bar",
+            rendersForReal = false, prerequisites = listOf("app"), keywords = "scrolling app bar",
+        ),
+
+        // ---- Jetpack Compose ----
+        //
+        // Rendered by the real Compose runtime rather than approximated — see ComposeCanvas. The
+        // imports come with each entry because a composable dropped into a file that cannot name it
+        // is a file that does not compile.
+        compose(
+            "Text", TEXT, """Text("Text")""",
+            imports = listOf(M3 + ".Text"),
+            keywords = "label caption",
+        ),
+        compose(
+            "Heading", TEXT,
+            """Text(\n    text = "Heading",\n    fontSize = 24.sp,\n    fontWeight = FontWeight.Bold,\n)""",
+            imports = listOf(M3 + ".Text", "androidx.compose.ui.text.font.FontWeight", "androidx.compose.ui.unit.sp"),
+            keywords = "title h1 bold",
+        ),
+        compose(
+            "OutlinedTextField", TEXT,
+            """OutlinedTextField(\n    value = "",\n    onValueChange = { },\n    label = { Text("Label") },\n)""",
+            imports = listOf(M3 + ".OutlinedTextField", M3 + ".Text"),
+            keywords = "input field form",
+        ),
+
+        compose(
+            "Button", BUTTONS, """Button(onClick = { }) {\n    Text("Button")\n}""",
+            imports = listOf(M3 + ".Button", M3 + ".Text"),
+            keywords = "action tap",
+        ),
+        compose(
+            "OutlinedButton", BUTTONS, """OutlinedButton(onClick = { }) {\n    Text("Button")\n}""",
+            imports = listOf(M3 + ".OutlinedButton", M3 + ".Text"),
+            keywords = "action secondary",
+        ),
+        compose(
+            "TextButton", BUTTONS, """TextButton(onClick = { }) {\n    Text("Button")\n}""",
+            imports = listOf(M3 + ".TextButton", M3 + ".Text"),
+            keywords = "action flat link",
+        ),
+
+        compose(
+            "Column", LAYOUTS, """Column(modifier = Modifier.fillMaxWidth()) {\n}""",
+            imports = listOf(LAYOUT + ".Column", LAYOUT + ".fillMaxWidth", "androidx.compose.ui.Modifier"),
+            keywords = "vertical stack",
+        ),
+        compose(
+            "Row", LAYOUTS, """Row(modifier = Modifier.fillMaxWidth()) {\n}""",
+            imports = listOf(LAYOUT + ".Row", LAYOUT + ".fillMaxWidth", "androidx.compose.ui.Modifier"),
+            keywords = "horizontal side by side",
+        ),
+        compose(
+            "Box", LAYOUTS, """Box(modifier = Modifier.fillMaxWidth()) {\n}""",
+            imports = listOf(LAYOUT + ".Box", LAYOUT + ".fillMaxWidth", "androidx.compose.ui.Modifier"),
+            keywords = "stack overlay",
+        ),
+        compose(
+            "LazyColumn", LAYOUTS, """LazyColumn(modifier = Modifier.fillMaxSize()) {\n}""",
+            imports = listOf(
+                "androidx.compose.foundation.lazy.LazyColumn", LAYOUT + ".fillMaxSize",
+                "androidx.compose.ui.Modifier",
+            ),
+            keywords = "list scrolling recycler",
+        ),
+        compose(
+            "Spacer", LAYOUTS, """Spacer(modifier = Modifier.height(16.dp))""",
+            imports = listOf(
+                LAYOUT + ".Spacer", LAYOUT + ".height", "androidx.compose.ui.Modifier",
+                "androidx.compose.ui.unit.dp",
+            ),
+            keywords = "gap padding",
+        ),
+
+        compose(
+            "Card", MATERIAL, """Card(modifier = Modifier.fillMaxWidth()) {\n}""",
+            imports = listOf(M3 + ".Card", LAYOUT + ".fillMaxWidth", "androidx.compose.ui.Modifier"),
+            keywords = "surface elevated",
+        ),
+        compose(
+            "Surface", MATERIAL, """Surface(modifier = Modifier.fillMaxWidth()) {\n}""",
+            imports = listOf(M3 + ".Surface", LAYOUT + ".fillMaxWidth", "androidx.compose.ui.Modifier"),
+            keywords = "background container",
+        ),
+        compose(
+            "HorizontalDivider", MATERIAL, """HorizontalDivider()""",
+            imports = listOf(M3 + ".HorizontalDivider"),
+            keywords = "rule separator line",
+        ),
+        compose(
+            "Icon", MATERIAL,
+            """Icon(\n    imageVector = Icons.Default.Star,\n    contentDescription = null,\n)""",
+            imports = listOf(M3 + ".Icon", "androidx.compose.material.icons.Icons", "androidx.compose.material.icons.filled.Star"),
+            rendersForReal = false,
+            keywords = "symbol glyph",
         ),
     )
 
-    /** Items matching [query], across label, category and keywords; everything when it is blank. */
-    fun search(query: String): List<PaletteItem> {
+    /** Every category that has an entry in [format], in display order. */
+    fun categories(format: DesignFormat): List<String> =
+        categories.filter { c -> items.any { it.format == format && it.category == c } }
+
+    /** Items in [format] matching [query]; everything in that format when the query is blank. */
+    fun search(query: String, format: DesignFormat): List<PaletteItem> {
+        val inFormat = items.filter { it.format == format }
         val q = query.trim().lowercase()
-        if (q.isEmpty()) return items
-        return items.filter {
+        if (q.isEmpty()) return inFormat
+        return inFormat.filter {
             it.label.lowercase().contains(q) ||
                 it.category.lowercase().contains(q) ||
                 it.keywords.contains(q)
         }
     }
+
+    private fun compose(
+        label: String,
+        category: String,
+        code: String,
+        imports: List<String>,
+        rendersForReal: Boolean = true,
+        keywords: String = "",
+    ) = PaletteItem(
+        label = label,
+        category = category,
+        xml = code,
+        rendersForReal = rendersForReal,
+        prerequisites = imports,
+        keywords = keywords,
+        format = DesignFormat.Compose,
+    )
+
+    private const val M3 = "androidx.compose.material3"
+    private const val LAYOUT = "androidx.compose.foundation.layout"
 
     private fun wrap(tag: String, vararg attrs: String): String =
         build(tag, "wrap_content", "wrap_content", attrs, selfClosing = true)

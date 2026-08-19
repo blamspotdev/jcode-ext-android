@@ -155,9 +155,9 @@ internal fun Modifier.canvasGestures(
  * and the only safe option.
  */
 internal class RendererRef {
-    var renderer: LayoutRenderer? = null
+    var renderer: CanvasBounds? = null
     /** The element the in-flight drag picked up, so the drop test can ignore it. */
-    var moving: LayoutDocument.Element? = null
+    var moving: DesignElement? = null
     /**
      * What the current views were built from, so they are rebuilt only when that changes.
      *
@@ -176,24 +176,20 @@ internal class RendererRef {
  * this one", not "at the back of whatever encloses it".
  */
 internal fun dropTargetAt(
-    renderer: LayoutRenderer,
-    root: LayoutDocument.Element,
+    canvas: CanvasBounds,
+    root: DesignElement,
     point: Offset,
-    moving: LayoutDocument.Element?,
+    moving: DesignElement?,
 ): DropTarget? {
-    val x = point.x
-    val y = point.y
-    val excluded: Set<LayoutDocument.Element> = moving?.flatten()?.toSet().orEmpty()
+    val excluded: Set<DesignElement> = moving?.flatten()?.toSet().orEmpty()
 
-    var container: LayoutDocument.Element? = null
+    var container: DesignElement? = null
     var deepest = -1
 
-    fun walk(element: LayoutDocument.Element, depth: Int) {
+    fun walk(element: DesignElement, depth: Int) {
         if (element in excluded) return
-        val view = renderer.views[element] ?: return
-        val (left, top) = renderer.offsetOf(view)
-        val inside = x >= left && x < left + view.width && y >= top && y < top + view.height
-        if (inside && view is ViewGroup && depth > deepest) {
+        val box = canvas.boundsOf(element)
+        if (box != null && box.contains(point) && canvas.acceptsChildren(element) && depth > deepest) {
             container = element
             deepest = depth
         }
@@ -203,12 +199,9 @@ internal fun dropTargetAt(
 
     val target = container ?: return null
     val path = elementPath(root, target) ?: return null
-    val view = renderer.views[target] ?: return null
-    val (left, top) = renderer.offsetOf(view)
-    val box =
-        Rect(left.toFloat(), top.toFloat(), (left + view.width).toFloat(), (top + view.height).toFloat())
+    val box = canvas.boundsOf(target) ?: return null
 
-    val kids = target.children.filter { it !in excluded && renderer.views[it] != null }
+    val kids = target.children.filter { it !in excluded && canvas.boundsOf(it) != null }
     val axis = axisOf(target)
     if (axis == null || kids.isEmpty()) {
         // A FrameLayout or a ConstraintLayout positions its children by their own attributes, so
@@ -218,12 +211,9 @@ internal fun dropTargetAt(
 
     var index = kids.size
     for ((at, child) in kids.withIndex()) {
-        val childView = renderer.views[child] ?: continue
-        val (childLeft, childTop) = renderer.offsetOf(childView)
-        val centre =
-            if (axis == Axis.Vertical) childTop + childView.height / 2f
-            else childLeft + childView.width / 2f
-        val along = if (axis == Axis.Vertical) y else x
+        val childBox = canvas.boundsOf(child) ?: continue
+        val centre = if (axis == Axis.Vertical) childBox.center.y else childBox.center.x
+        val along = if (axis == Axis.Vertical) point.y else point.x
         if (along < centre) {
             index = at
             break
@@ -231,13 +221,11 @@ internal fun dropTargetAt(
     }
 
     val edge = if (index < kids.size) {
-        val v = renderer.views.getValue(kids[index])
-        val (l, t) = renderer.offsetOf(v)
-        if (axis == Axis.Vertical) t.toFloat() else l.toFloat()
+        val b = canvas.boundsOf(kids[index]) ?: box
+        if (axis == Axis.Vertical) b.top else b.left
     } else {
-        val v = renderer.views.getValue(kids.last())
-        val (l, t) = renderer.offsetOf(v)
-        if (axis == Axis.Vertical) (t + v.height).toFloat() else (l + v.width).toFloat()
+        val b = canvas.boundsOf(kids.last()) ?: box
+        if (axis == Axis.Vertical) b.bottom else b.right
     }
     val line = if (axis == Axis.Vertical) {
         Rect(box.left, edge - 2f, box.right, edge + 2f)
@@ -250,12 +238,34 @@ internal fun dropTargetAt(
 private enum class Axis { Vertical, Horizontal }
 
 /** The axis a container lays its children out along, or null when child order does not decide it. */
-private fun axisOf(element: LayoutDocument.Element): Axis? = when {
+private fun axisOf(element: DesignElement): Axis? = when {
     element.tag.endsWith("HorizontalScrollView") -> Axis.Horizontal
     element.tag.endsWith("LinearLayout") || element.tag.endsWith("RadioGroup") ->
         if (element.value("orientation") == "horizontal") Axis.Horizontal else Axis.Vertical
     element.tag.endsWith("ScrollView") -> Axis.Vertical
+    // Compose, Flutter and React Native each name the direction in the widget rather than in an
+    // attribute, which makes this the easy half.
+    element.tag in VERTICAL_TAGS -> Axis.Vertical
+    element.tag in HORIZONTAL_TAGS -> Axis.Horizontal
     else -> null
+}
+
+private val VERTICAL_TAGS = setOf("Column", "LazyColumn", "ListView", "SingleChildScrollView")
+private val HORIZONTAL_TAGS = setOf("Row", "LazyRow")
+
+/**
+ * Where each element ended up on the canvas, whatever drew it.
+ *
+ * The hit test and the drop test are about rectangles, not about Views, so they are written against
+ * this: an Android layout inflated into real widgets and a Compose tree measured by the Compose
+ * runtime both answer the same two questions, and neither one needs its own copy of this logic.
+ */
+internal interface CanvasBounds {
+    /** The box this element occupies, in canvas pixels, or null when it was not drawn. */
+    fun boundsOf(element: DesignElement): Rect?
+
+    /** True when this element can take children — a drop has to land somewhere that accepts one. */
+    fun acceptsChildren(element: DesignElement): Boolean
 }
 
 // ---- paths, across an edit that removes an element ----
