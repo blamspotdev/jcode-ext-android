@@ -24,7 +24,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Divider
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Tab
 import androidx.compose.material3.TabRow
 import androidx.compose.material3.Surface
@@ -229,8 +228,9 @@ internal fun DesignerScreen(
                     canvas(Modifier.weight(1f).fillMaxHeight())
                     VerticalRule()
                     Column(
-                        Modifier.width(290.dp).fillMaxHeight().verticalScroll(rememberScrollState()).padding(10.dp),
-                        verticalArrangement = Arrangement.spacedBy(10.dp),
+                        Modifier.width(290.dp).fillMaxHeight().verticalScroll(rememberScrollState())
+                            .padding(horizontal = 10.dp, vertical = 8.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp),
                     ) {
                         ScreenChromePanel(chrome, { chrome = it })
                         Divider()
@@ -291,8 +291,9 @@ internal fun DesignerScreen(
                                 scrollable = true,
                             )
                             PanelTab.Properties -> Column(
-                                Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(10.dp),
-                                verticalArrangement = Arrangement.spacedBy(8.dp),
+                                Modifier.fillMaxSize().verticalScroll(rememberScrollState())
+                                    .padding(horizontal = 10.dp, vertical = 8.dp),
+                                verticalArrangement = Arrangement.spacedBy(6.dp),
                             ) {
                                 ScreenChromePanel(chrome, { chrome = it })
                                 Divider()
@@ -654,27 +655,21 @@ private fun PropertiesPanel(
     document.propertiesFor(element).forEach { name ->
         val current = element.attributes.firstOrNull { it.name == name }?.value.orEmpty()
         var draft by remember(element.range.first, name, current) { mutableStateOf(current) }
-        OutlinedTextField(
-            value = draft,
-            onValueChange = { draft = it },
-            label = { Text(name.substringAfter(':'), style = MaterialTheme.typography.labelSmall) },
-            singleLine = true,
-            modifier = Modifier.fillMaxWidth(),
-            textStyle = MaterialTheme.typography.bodySmall,
-        )
         // Committed on a button rather than per keystroke: every commit rewrites the file and
         // reparses, and doing that on each character would fight the user's typing.
-        if (draft != current) {
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                TextButton(onClick = {
-                    onSource(
-                        if (draft.isBlank()) document.withoutAttribute(element, name)
-                        else document.withAttribute(element, name, draft),
-                    )
-                }) { Text("Apply") }
-                TextButton(onClick = { draft = current }) { Text("Revert") }
-            }
-        }
+        InspectorField(
+            label = name.substringAfter(':'),
+            value = draft,
+            onValueChange = { draft = it },
+            dirty = draft != current,
+            onCommit = {
+                onSource(
+                    if (draft.isBlank()) document.withoutAttribute(element, name)
+                    else document.withAttribute(element, name, draft),
+                )
+            },
+            onRevert = { draft = current },
+        )
     }
 
     Divider(modifier = Modifier.padding(vertical = 4.dp))

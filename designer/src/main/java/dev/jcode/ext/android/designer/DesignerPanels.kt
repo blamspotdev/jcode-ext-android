@@ -21,14 +21,11 @@ import androidx.compose.material.icons.rounded.GridOn
 import androidx.compose.material.icons.rounded.LightMode
 import androidx.compose.material.icons.rounded.PhoneAndroid
 import androidx.compose.material.icons.rounded.Remove
-import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -255,14 +252,10 @@ internal fun PalettePanel(
             .then(if (scrollable) Modifier.verticalScroll(rememberScrollState()) else Modifier)
             .padding(8.dp),
     ) {
-        OutlinedTextField(
+        InspectorSearchField(
             value = query,
             onValueChange = { query = it },
-            leadingIcon = { Icon(Icons.Rounded.Search, contentDescription = null, Modifier.size(16.dp)) },
-            placeholder = { Text("Search widgets", style = MaterialTheme.typography.labelSmall) },
-            singleLine = true,
-            textStyle = MaterialTheme.typography.bodySmall,
-            modifier = Modifier.fillMaxWidth(),
+            placeholder = "Search widgets",
         )
 
         Palette.categories(format).forEach { category ->
@@ -343,9 +336,9 @@ internal fun ScreenChromePanel(
             fontWeight = FontWeight.SemiBold,
             modifier = Modifier.padding(bottom = 2.dp),
         )
-        ChromeRow("Status bar", chrome.statusBar) { onChrome(chrome.copy(statusBar = it)) }
-        ChromeRow("App bar", chrome.appBar) { onChrome(chrome.copy(appBar = it)) }
-        ChromeRow("Navigation bar", chrome.navBar) { onChrome(chrome.copy(navBar = it)) }
+        InspectorToggle("Status bar", chrome.statusBar, { onChrome(chrome.copy(statusBar = it)) })
+        InspectorToggle("App bar", chrome.appBar, { onChrome(chrome.copy(appBar = it)) })
+        InspectorToggle("Navigation bar", chrome.navBar, { onChrome(chrome.copy(navBar = it)) })
         Text(
             text = if (chrome.topInsetDp == 0 && chrome.bottomInsetDp == 0) {
                 "Full screen — the layout gets the whole display."
@@ -359,13 +352,4 @@ internal fun ScreenChromePanel(
     }
 }
 
-@Composable
-private fun ChromeRow(label: String, checked: Boolean, onChange: (Boolean) -> Unit) {
-    Row(
-        modifier = Modifier.fillMaxWidth().padding(vertical = 1.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Text(label, style = MaterialTheme.typography.bodySmall, modifier = Modifier.weight(1f))
-        Switch(checked = checked, onCheckedChange = onChange)
-    }
-}
+
