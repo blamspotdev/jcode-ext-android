@@ -1,0 +1,5 @@
+# Gradle's own working state and everything it generates. The designer is built from source and
+# the APK is produced by `jext pack`; a checked-in build/ would just be a stale copy of it.
+.gradle/
+build/
+local.properties
