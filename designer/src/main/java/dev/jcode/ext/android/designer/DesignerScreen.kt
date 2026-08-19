@@ -3,9 +3,9 @@ package dev.jcode.ext.android.designer
 import android.view.View
 import android.view.ViewGroup
 import android.widget.FrameLayout
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -14,6 +14,8 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -21,47 +23,43 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Divider
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Tab
+import androidx.compose.material3.TabRow
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.layout.LayoutCoordinates
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import java.io.File
 
 /** A device the canvas can be sized to. Widths are the common Android breakpoints. */
-private data class DeviceSize(val label: String, val widthDp: Int, val heightDp: Int)
+internal data class DeviceSize(val label: String, val widthDp: Int, val heightDp: Int)
 
-private val DEVICES = listOf(
+internal val DEVICES = listOf(
     DeviceSize("Phone", 411, 891),
     DeviceSize("Phone (small)", 360, 640),
     DeviceSize("Foldable", 673, 841),
     DeviceSize("Tablet", 800, 1280),
-)
-
-/** Widgets the palette can insert. Only ones the renderer draws for real — offering a Material
- *  button that lands as a dashed placeholder would be worse than not offering it. */
-private val PALETTE = listOf(
-    "TextView" to "<TextView\n    android:layout_width=\"wrap_content\"\n    android:layout_height=\"wrap_content\"\n    android:text=\"Text\" />",
-    "Button" to "<Button\n    android:layout_width=\"wrap_content\"\n    android:layout_height=\"wrap_content\"\n    android:text=\"Button\" />",
-    "EditText" to "<EditText\n    android:layout_width=\"match_parent\"\n    android:layout_height=\"wrap_content\"\n    android:hint=\"Enter text\" />",
-    "ImageView" to "<ImageView\n    android:layout_width=\"48dp\"\n    android:layout_height=\"48dp\" />",
-    "LinearLayout" to "<LinearLayout\n    android:layout_width=\"match_parent\"\n    android:layout_height=\"wrap_content\"\n    android:orientation=\"vertical\" />",
-    "CheckBox" to "<CheckBox\n    android:layout_width=\"wrap_content\"\n    android:layout_height=\"wrap_content\"\n    android:text=\"Check me\" />",
 )
 
 private val COMMON_ATTRS = listOf(
@@ -70,6 +68,9 @@ private val COMMON_ATTRS = listOf(
 )
 private val TEXT_ATTRS =
     listOf("android:text", "android:textSize", "android:textColor", "android:textStyle", "android:gravity")
+
+/** Which side panel the narrow layout is showing. */
+private enum class PanelTab(val label: String) { Layers("Layers"), Palette("Palette"), Properties("Properties") }
 
 @Composable
 internal fun DesignerScreen(
@@ -81,11 +82,15 @@ internal fun DesignerScreen(
     val resources = remember(projectDir, source) { ResourceTable.read(projectDir) }
     var selectedPath by remember { mutableStateOf<String?>(null) }
     var device by remember { mutableStateOf(DEVICES.first()) }
-    var deviceMenu by remember { mutableStateOf(false) }
-    var darkCanvas by remember { mutableStateOf(false) }
-    var showBounds by remember { mutableStateOf(true) }
+    var dark by remember { mutableStateOf(false) }
+    var bounds by remember { mutableStateOf(true) }
     // null means "fit the pane" — the state a designer should open in.
     var zoom by remember { mutableStateOf<Float?>(null) }
+    var chrome by remember { mutableStateOf(ScreenChrome()) }
+    var tab by remember { mutableStateOf(PanelTab.Palette) }
+    var drag by remember { mutableStateOf<DragState?>(null) }
+    var hover by remember { mutableStateOf<DropTarget?>(null) }
+    var rootCoords by remember { mutableStateOf<LayoutCoordinates?>(null) }
 
     val root = document.root
     if (root == null) {
@@ -99,102 +104,239 @@ internal fun DesignerScreen(
         return
     }
 
-    // Selection is held as a child-index path, not as the element object: every edit reparses the
-    // file, so the instance the user tapped no longer exists by the time their change comes back.
     val flat = remember(document) { root.flatten() }
-    val selected = flat.firstOrNull { pathOf(root, it) == selectedPath }
+    val selected = flat.firstOrNull { elementPath(root, it) == selectedPath }
 
-    Column(Modifier.fillMaxSize()) {
-        Row(
-            modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())
-                .padding(horizontal = 8.dp, vertical = 4.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(2.dp),
-        ) {
-            Box {
-                TextButton(onClick = { deviceMenu = true }) { Text("${device.label} · ${device.widthDp}dp") }
-                DropdownMenu(expanded = deviceMenu, onDismissRequest = { deviceMenu = false }) {
-                    DEVICES.forEach { d ->
-                        DropdownMenuItem(
-                            text = { Text("${d.label} — ${d.widthDp}×${d.heightDp}dp") },
-                            onClick = { device = d; deviceMenu = false },
-                        )
-                    }
-                }
-            }
-            TextButton(onClick = { darkCanvas = !darkCanvas }) { Text(if (darkCanvas) "Dark" else "Light") }
-            TextButton(onClick = { showBounds = !showBounds }) {
-                Text(if (showBounds) "Bounds" else "No bounds")
-            }
-            TextButton(onClick = { zoom = ((zoom ?: 1f) - 0.15f).coerceAtLeast(0.1f) }) { Text("−") }
-            TextButton(onClick = { zoom = null }) { Text(zoom?.let { "${(it * 100).toInt()}%" } ?: "Fit") }
-            TextButton(onClick = { zoom = ((zoom ?: 1f) + 0.15f).coerceAtMost(3f) }) { Text("+") }
-            Text(
-                text = selected?.let { "${it.tag.substringAfterLast('.')} selected" }
-                    ?: "${flat.size} widgets",
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(start = 6.dp),
-            )
+    // Inserting goes through the palette item so its namespaces come with it — see
+    // LayoutDocument.withNamespaces for why a Material widget can otherwise break the build.
+    fun insert(item: PaletteItem, into: LayoutDocument.Element, at: Int = -1) {
+        val withNs = LayoutDocument.parse(document.withNamespaces(item.namespaces))
+        val target = withNs.root?.let { elementAt(it, elementPath(root, into).orEmpty()) } ?: return
+        onSource(if (at < 0) withNs.withChild(target, item.xml) else withNs.withChildAt(target, at, item.xml))
+        tab = PanelTab.Properties
+    }
+
+    /** Lift an element out of the file and put it back down somewhere else, in one edit. */
+    fun move(from: String, to: DropTarget) {
+        val moving = elementAt(root, from) ?: return
+        val xml = dedent(
+            document.text.substring(moving.range.first, (moving.range.last + 1).coerceAtMost(document.text.length)),
+            moving.indent,
+        )
+        val removed = LayoutDocument.parse(document.without(moving))
+        val containerPath = pathAfterRemoval(to.containerPath, from) ?: return
+        val container = removed.root?.let { elementAt(it, containerPath) } ?: return
+        onSource(removed.withChildAt(container, to.index, xml))
+        selectedPath = null
+    }
+
+    fun applyDrop(target: DropTarget?) {
+        val payload = drag?.payload
+        drag = null
+        hover = null
+        if (target == null || payload == null) return
+        val container = elementAt(root, target.containerPath) ?: return
+        when (payload) {
+            is DragPayload.New -> insert(payload.item, container, target.index)
+            is DragPayload.Move -> move(payload.path, target)
         }
+    }
+
+    Box(Modifier.fillMaxSize().onGloballyPositioned { rootCoords = it }) {
+    Column(Modifier.fillMaxSize()) {
+        DesignerToolbar(
+            device = device,
+            onDevice = { device = it },
+            dark = dark,
+            onDark = { dark = it },
+            bounds = bounds,
+            onBounds = { bounds = it },
+            zoom = zoom,
+            onZoom = { zoom = it },
+            // While a drag is in flight the status line says where it would land. A drop that
+            // quietly does nothing is the worst outcome here, and this is what tells the user in
+            // advance that they are not over a container.
+            status = when {
+                drag != null -> hover?.let { target ->
+                    val into = elementAt(root, target.containerPath)?.tag?.substringAfterLast('.')
+                    "into $into at ${target.index}"
+                } ?: "no drop target"
+                selected != null -> "${selected.tag.substringAfterLast('.')} selected"
+                else -> "${flat.size} widgets"
+            },
+        )
         Divider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
 
-        Row(Modifier.fillMaxWidth().weight(1f)) {
+        val canvas: @Composable (Modifier) -> Unit = { m ->
             Box(
-                modifier = Modifier.weight(1f).fillMaxHeight()
-                    .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.25f)),
+                modifier = m.background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.25f)),
             ) {
                 DesignCanvas(
                     root = root,
                     resources = resources,
                     device = device,
-                    dark = darkCanvas,
-                    showBounds = showBounds,
+                    dark = dark,
+                    showBounds = bounds,
                     zoom = zoom,
+                    chrome = chrome,
                     selectedPath = selectedPath,
                     onSelect = { selectedPath = it },
+                    drag = drag,
+                    hover = hover,
+                    onHover = { hover = it },
+                    onPickUp = { path, label, at ->
+                        drag = DragState(DragPayload.Move(path, label), at)
+                    },
+                    onDragTo = { at -> drag = drag?.copy(position = at) },
+                    onDrop = { dropped -> applyDrop(if (dropped) hover else null) },
                 )
             }
+        }
 
-            Divider(
-                modifier = Modifier.fillMaxHeight().width(1.dp),
-                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f),
-            )
+        BoxWithConstraints(Modifier.fillMaxSize()) {
+            // Wide enough for three columns, or not. The threshold is where a 220dp tree, a 280dp
+            // inspector and a canvas worth looking at stop fitting side by side; below it the panels
+            // become tabs under the canvas rather than being squeezed into slivers.
+            val sideBySide = maxWidth >= 720.dp
 
-            Column(
-                modifier = Modifier.width(300.dp).fillMaxHeight()
-                    .verticalScroll(rememberScrollState()).padding(12.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp),
-            ) {
-                if (selected == null) {
-                    Text("Palette", style = MaterialTheme.typography.titleSmall)
-                    Text(
-                        "Tap a widget on the canvas to edit it, or add one to the root here.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+            if (sideBySide) {
+                Row(Modifier.fillMaxSize()) {
+                    LayerTree(
+                        root = root,
+                        selectedPath = selectedPath,
+                        onSelect = { selectedPath = it },
+                        onDragStart = { payload, at -> drag = DragState(payload, at) },
+                        onDragMove = { at -> drag = drag?.copy(position = at) },
+                        onDragEnd = { dropped -> applyDrop(if (dropped) hover else null) },
+                        modifier = Modifier.width(200.dp).fillMaxHeight(),
                     )
-                    PALETTE.forEach { (label, xml) ->
-                        TextButton(onClick = { onSource(document.withChild(root, xml)) }) { Text("+  $label") }
+                    VerticalRule()
+                    canvas(Modifier.weight(1f).fillMaxHeight())
+                    VerticalRule()
+                    Column(
+                        Modifier.width(290.dp).fillMaxHeight().verticalScroll(rememberScrollState()).padding(10.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
+                        ScreenChromePanel(chrome, { chrome = it })
+                        Divider()
+                        if (selected == null) {
+                            PalettePanel(
+                                onInsert = { insert(it, root) },
+                        onDragStart = { payload, at -> drag = DragState(payload, at) },
+                        onDragMove = { at -> drag = drag?.copy(position = at) },
+                        onDragEnd = { dropped -> applyDrop(if (dropped) hover else null) },
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                        } else {
+                            PropertiesPanel(
+                                document = document,
+                                element = selected,
+                                onSource = onSource,
+                                onDelete = { selectedPath = null; onSource(document.without(selected)) },
+                                onInsertChild = { insert(it, selected) },
+                                onDragStart = { payload, at -> drag = DragState(payload, at) },
+                                onDragMove = { at -> drag = drag?.copy(position = at) },
+                                onDragEnd = { dropped -> applyDrop(if (dropped) hover else null) },
+                            )
+                        }
                     }
-                } else {
-                    PropertiesPanel(
-                        document = document,
-                        element = selected,
-                        onSource = onSource,
-                        onDelete = {
-                            selectedPath = null
-                            onSource(document.without(selected))
-                        },
-                        onAddChild = { xml -> onSource(document.withChild(selected, xml)) },
-                    )
                 }
+            } else {
+                Column(Modifier.fillMaxSize()) {
+                    canvas(Modifier.fillMaxWidth().weight(1f))
+                    Divider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+                    TabRow(selectedTabIndex = tab.ordinal, modifier = Modifier.fillMaxWidth()) {
+                        PanelTab.entries.forEach { t ->
+                            Tab(
+                                selected = tab == t,
+                                onClick = { tab = t },
+                                text = { Text(t.label, style = MaterialTheme.typography.labelSmall) },
+                            )
+                        }
+                    }
+                    Box(Modifier.fillMaxWidth().height(230.dp)) {
+                        when (tab) {
+                            PanelTab.Layers -> LayerTree(
+                                root = root,
+                                selectedPath = selectedPath,
+                                onSelect = { selectedPath = it },
+                                onDragStart = { payload, at -> drag = DragState(payload, at) },
+                                onDragMove = { at -> drag = drag?.copy(position = at) },
+                                onDragEnd = { dropped -> applyDrop(if (dropped) hover else null) },
+                                modifier = Modifier.fillMaxSize(),
+                            )
+                            PanelTab.Palette -> PalettePanel(
+                                onInsert = { insert(it, selected ?: root) },
+                                onDragStart = { payload, at -> drag = DragState(payload, at) },
+                                onDragMove = { at -> drag = drag?.copy(position = at) },
+                                onDragEnd = { dropped -> applyDrop(if (dropped) hover else null) },
+                                modifier = Modifier.fillMaxSize(),
+                                scrollable = true,
+                            )
+                            PanelTab.Properties -> Column(
+                                Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(10.dp),
+                                verticalArrangement = Arrangement.spacedBy(8.dp),
+                            ) {
+                                ScreenChromePanel(chrome, { chrome = it })
+                                Divider()
+                                if (selected == null) {
+                                    Text(
+                                        "Tap a widget on the canvas, or pick one in Layers.",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                } else {
+                                    PropertiesPanel(
+                                        document = document,
+                                        element = selected,
+                                        onSource = onSource,
+                                        onDelete = { selectedPath = null; onSource(document.without(selected)) },
+                                        onInsertChild = { insert(it, selected) },
+                                        onDragStart = { payload, at -> drag = DragState(payload, at) },
+                                        onDragMove = { at -> drag = drag?.copy(position = at) },
+                                        onDragEnd = { dropped -> applyDrop(if (dropped) hover else null) },
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+        // The chip follows the finger across every panel, which is the only feedback that says a
+        // long press turned into a drag rather than into nothing.
+        drag?.let { active ->
+            val origin = rootCoords?.positionInRoot() ?: Offset.Zero
+            val local = active.position - origin
+            Surface(
+                shape = RoundedCornerShape(6.dp),
+                color = MaterialTheme.colorScheme.primary,
+                shadowElevation = 6.dp,
+                modifier = Modifier.offset { IntOffset(local.x.toInt() + 24, local.y.toInt() - 56) },
+            ) {
+                Text(
+                    text = active.payload.label,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onPrimary,
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                )
             }
         }
     }
 }
 
+@Composable
+private fun VerticalRule() {
+    Divider(
+        modifier = Modifier.fillMaxHeight().width(1.dp),
+        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f),
+    )
+}
+
 /**
- * The layout, inflated for real at the canvas's own scale.
+ * The layout, inflated for real at the canvas's own scale, inside the screen's chrome.
  *
  * Hosted in an [AndroidView] because the thing being previewed *is* a View hierarchy — asking
  * Compose to approximate one would reintroduce exactly the guesswork this avoids.
@@ -208,40 +350,64 @@ private fun DesignCanvas(
     showBounds: Boolean,
     /** null = fit the pane; otherwise the user's zoom factor. */
     zoom: Float?,
+    chrome: ScreenChrome,
     selectedPath: String?,
     onSelect: (String?) -> Unit,
+    drag: DragState?,
+    hover: DropTarget?,
+    onHover: (DropTarget?) -> Unit,
+    onPickUp: (path: String, label: String, at: Offset) -> Unit,
+    onDragTo: (Offset) -> Unit,
+    onDrop: (dropped: Boolean) -> Unit,
 ) {
     val outline = MaterialTheme.colorScheme.primary
     val screenDensity = LocalDensity.current.density
+    // Hoisted out of the AndroidView because the gestures need the views it built — see RendererRef
+    // for why it is a field rather than state.
+    val ref = remember { RendererRef() }
+    var canvasCoords by remember { mutableStateOf<LayoutCoordinates?>(null) }
+
+    fun toCanvas(inRoot: Offset): Offset =
+        canvasCoords?.takeIf { it.isAttached }?.let { inRoot - it.positionInRoot() } ?: inRoot
 
     BoxWithConstraints(
-        modifier = Modifier.fillMaxSize().padding(12.dp),
+        modifier = Modifier.fillMaxSize().padding(10.dp),
         contentAlignment = Alignment.TopCenter,
     ) {
-        // "Fit" until the user zooms, which is the state a designer should open in.
         val fit = minOf(maxWidth / device.widthDp.dp, maxHeight / device.heightDp.dp, 1f)
         val effective = (zoom ?: fit).coerceIn(0.1f, 3f)
+        val barColour = if (dark) Color(0xFF1E1E1E) else Color(0xFFE8E8E8)
 
-        Box(
+        Column(
             modifier = Modifier
                 .size(width = device.widthDp.dp * effective, height = device.heightDp.dp * effective)
                 .background(if (dark) Color(0xFF121212) else Color.White, RoundedCornerShape(4.dp))
                 .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(4.dp)),
         ) {
+            if (chrome.statusBar) SystemBar(24.dp * effective, barColour, "")
+            if (chrome.appBar) SystemBar(56.dp * effective, MaterialTheme.colorScheme.primary, "App bar")
+
+            Box(
+                modifier = Modifier.fillMaxWidth().weight(1f)
+                    .onGloballyPositioned { canvasCoords = it },
+            ) {
             AndroidView(
                 modifier = Modifier.fillMaxSize(),
                 factory = { ctx -> FrameLayout(ctx) },
                 update = { host ->
+                    val signature = listOf(root, resources, dark, effective, showBounds, selectedPath)
+                    if (ref.signature == signature) return@AndroidView
+                    ref.signature = signature
                     host.removeAllViews()
                     // Built smaller rather than drawn smaller — see the density note in
                     // LayoutRenderer for why zoom is a re-measure and not a transform.
-                    val renderer =
+                    val built =
                         LayoutRenderer(host.context, resources, dark, screenDensity * effective)
                     // Shown, not swallowed. A designer that renders nothing and says nothing is the
                     // worst failure available to it: the user cannot tell a broken layout from a
                     // broken designer.
                     val view = try {
-                        renderer.render(root)
+                        built.render(root)
                     } catch (e: Throwable) {
                         host.addView(
                             android.widget.TextView(host.context).apply {
@@ -262,24 +428,105 @@ private fun DesignCanvas(
                     )
                     // After attaching, not before: ConstraintSet.applyTo writes the children's
                     // params and then asks for a layout pass, and a detached view has nobody to ask.
-                    renderer.assignIds()
-                    if (showBounds) renderer.outlineAll()
+                    built.assignIds()
+                    if (showBounds) built.outlineAll(screenDensity)
                     selectedPath
-                        ?.let { path -> root.flatten().firstOrNull { pathOf(root, it) == path } }
-                        ?.let { renderer.views[it] }
-                        ?.let { target -> renderer.outlineSelection(target, outline.toArgb()) }
+                        ?.let { path -> root.flatten().firstOrNull { elementPath(root, it) == path } }
+                        ?.let { built.views[it] }
+                        ?.let { target -> built.outlineSelection(target, outline.toArgb(), screenDensity) }
 
-                    // One listener on the host rather than one per view: a child that is not
-                    // clickable never receives the event, and making every widget clickable would
-                    // change the behaviour of the very layout being previewed.
-                    host.setOnTouchListener { _, event ->
-                        if (event.action == android.view.MotionEvent.ACTION_UP) {
-                            val hit = hitTest(renderer, root, event.x.toInt(), event.y.toInt())
-                            onSelect(hit?.let { pathOf(root, it) })
-                        }
-                        true
-                    }
+                    ref.renderer = built
                 },
+            )
+
+            // Gestures live in Compose, over the inflated views rather than inside them: a child
+            // that is not clickable never receives a touch, and making every widget clickable to fix
+            // that would change the behaviour of the very layout being previewed.
+            Box(
+                Modifier.matchParentSize().canvasGestures(
+                    key = root,
+                    onTap = { at ->
+                        val built = ref.renderer ?: return@canvasGestures
+                        onSelect(hitTest(built, root, at.x.toInt(), at.y.toInt())?.let { elementPath(root, it) })
+                    },
+                    onDragStart = { at ->
+                        val built = ref.renderer ?: return@canvasGestures
+                        val hit = hitTest(built, root, at.x.toInt(), at.y.toInt())
+                        val path = hit?.let { elementPath(root, it) }
+                        // The root has nowhere to go, so a drag on empty canvas is not a drag.
+                        if (hit != null && !path.isNullOrEmpty()) {
+                            ref.moving = hit
+                            onPickUp(path, hit.tag.substringAfterLast('.'), toRoot(canvasCoords, at))
+                        }
+                    },
+                    onDragMove = { at ->
+                        if (ref.moving == null) return@canvasGestures
+                        onDragTo(toRoot(canvasCoords, at))
+                    },
+                    onDragEnd = { dropped ->
+                        if (ref.moving != null) {
+                            ref.moving = null
+                            onDrop(dropped)
+                        }
+                    },
+                ),
+            )
+
+            // Every drag is resolved here, from the position alone, whatever started it. The palette
+            // and the layer tree have no idea where the canvas is — see DesignerDrag for why root
+            // coordinates are the contract between them — and a second copy of this for canvas drags
+            // would be a second chance to disagree with this one.
+            val at = drag?.position
+            val payload = drag?.payload
+            LaunchedEffect(at, payload) {
+                val built = ref.renderer
+                if (at != null && built != null) {
+                    val moving = (payload as? DragPayload.Move)?.let { elementAt(root, it.path) }
+                    onHover(dropTargetAt(built, root, toCanvas(at), moving))
+                }
+            }
+
+            if (drag != null) {
+                val fill = outline.copy(alpha = 0.12f)
+                Canvas(Modifier.matchParentSize()) {
+                    hover?.let { target ->
+                        drawRect(
+                            color = fill,
+                            topLeft = target.container.topLeft,
+                            size = target.container.size,
+                        )
+                        drawRect(
+                            color = outline,
+                            topLeft = target.container.topLeft,
+                            size = target.container.size,
+                            style = Stroke(width = screenDensity),
+                        )
+                        target.line?.let { line ->
+                            drawRect(color = outline, topLeft = line.topLeft, size = line.size)
+                        }
+                    }
+                }
+            }
+            }
+
+            if (chrome.navBar) SystemBar(48.dp * effective, barColour, "")
+        }
+    }
+}
+
+/** A simulated system or app bar. Drawn because it takes height the layout does not get. */
+@Composable
+private fun SystemBar(height: androidx.compose.ui.unit.Dp, colour: Color, label: String) {
+    Box(
+        modifier = Modifier.fillMaxWidth().height(height).background(colour),
+        contentAlignment = Alignment.CenterStart,
+    ) {
+        if (label.isNotEmpty() && height > 20.dp) {
+            Text(
+                text = label,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onPrimary,
+                modifier = Modifier.padding(start = 8.dp),
             )
         }
     }
@@ -296,7 +543,7 @@ private fun hitTest(
     var bestDepth = -1
     fun walk(element: LayoutDocument.Element, depth: Int) {
         val view = renderer.views[element] ?: return
-        val (left, top) = absoluteOffset(view)
+        val (left, top) = renderer.offsetOf(view)
         if (x >= left && x < left + view.width && y >= top && y < top + view.height && depth > bestDepth) {
             best = element
             bestDepth = depth
@@ -307,19 +554,6 @@ private fun hitTest(
     return best
 }
 
-/** A view's position relative to the canvas host, walked by hand — no window coordinates involved. */
-internal fun absoluteOffset(view: View): Pair<Int, Int> {
-    var x = 0
-    var y = 0
-    var current: View? = view
-    while (current != null && current.parent is View) {
-        x += current.left
-        y += current.top
-        current = current.parent as? View
-    }
-    return x to y
-}
-
 /**
  * A stable identity for an element: the child-index path from the root.
  *
@@ -327,12 +561,23 @@ internal fun absoluteOffset(view: View): Pair<Int, Int> {
  * and plenty of widgets have no id. The path survives an attribute edit, which is the case that
  * matters — the user changes a colour and expects the thing to stay selected.
  */
-private fun pathOf(root: LayoutDocument.Element, target: LayoutDocument.Element): String? {
+internal fun elementPath(root: LayoutDocument.Element, target: LayoutDocument.Element): String? {
     if (root === target) return ""
     root.children.forEachIndexed { index, child ->
-        pathOf(child, target)?.let { return "$index.$it" }
+        elementPath(child, target)?.let { return "$index.$it" }
     }
     return null
+}
+
+/** The element a [elementPath] names, in a freshly parsed tree. */
+internal fun elementAt(root: LayoutDocument.Element, path: String): LayoutDocument.Element? {
+    if (path.isEmpty()) return root
+    var current = root
+    path.trim('.').split('.').filter { it.isNotEmpty() }.forEach { part ->
+        val index = part.toIntOrNull() ?: return null
+        current = current.children.getOrNull(index) ?: return null
+    }
+    return current
 }
 
 private fun Color.toArgb(): Int = android.graphics.Color.argb(
@@ -345,7 +590,10 @@ private fun PropertiesPanel(
     element: LayoutDocument.Element,
     onSource: (String) -> Unit,
     onDelete: () -> Unit,
-    onAddChild: (String) -> Unit,
+    onInsertChild: (PaletteItem) -> Unit,
+    onDragStart: (DragPayload, Offset) -> Unit,
+    onDragMove: (Offset) -> Unit,
+    onDragEnd: (Boolean) -> Unit,
 ) {
     Text(element.tag.substringAfterLast('.'), style = MaterialTheme.typography.titleSmall)
 
@@ -381,35 +629,33 @@ private fun PropertiesPanel(
 
     Divider(modifier = Modifier.padding(vertical = 4.dp))
 
-    Text("Add child", style = MaterialTheme.typography.labelMedium)
-    Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-        PALETTE.forEach { (label, xml) ->
-            TextButton(onClick = { onAddChild(xml) }) {
-                Text(label, style = MaterialTheme.typography.labelSmall)
-            }
-        }
-    }
+    Text("Add inside this widget", style = MaterialTheme.typography.labelMedium)
+    PalettePanel(
+        onInsert = onInsertChild,
+        onDragStart = onDragStart,
+        onDragMove = onDragMove,
+        onDragEnd = onDragEnd,
+        modifier = Modifier.fillMaxWidth().height(220.dp),
+        scrollable = true,
+    )
 
     TextButton(onClick = onDelete) {
         Text("Delete this widget", color = MaterialTheme.colorScheme.error)
     }
 
-    Surface(
-        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
-        shape = RoundedCornerShape(6.dp),
-        modifier = Modifier.fillMaxWidth(),
-    ) {
-        Column(Modifier.padding(8.dp)) {
-            Text("XML", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.SemiBold)
-            Text(
-                text = document.text.substring(
-                    element.range.first,
-                    (element.range.last + 1).coerceAtMost(document.text.length),
-                ),
-                style = MaterialTheme.typography.labelSmall,
-                fontFamily = FontFamily.Monospace,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
+    Column(Modifier.padding(top = 4.dp)) {
+        Text("XML", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.SemiBold)
+        Text(
+            text = document.text.substring(
+                element.range.first,
+                (element.range.last + 1).coerceAtMost(document.text.length),
+            ),
+            style = MaterialTheme.typography.labelSmall,
+            fontFamily = FontFamily.Monospace,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
     }
 }
+
+private fun toRoot(coords: LayoutCoordinates?, local: Offset): Offset =
+    coords?.takeIf { it.isAttached }?.localToRoot(local) ?: local

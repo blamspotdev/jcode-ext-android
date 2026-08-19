@@ -101,7 +101,53 @@ internal class LayoutDocument private constructor(val text: String, val root: El
         if (closeStart <= 0) return text
         var at = closeStart
         while (at > 0 && text[at - 1].isWhitespace()) at--
-        return text.replaceRange(at, at, "\n\n$block\n")
+        // The whitespace before the closing tag is replaced, not inserted in front of. Inserting
+        // leaves it sitting after the new child, so every insert that follows a removal adds another
+        // blank line and the file slowly fills with holes.
+        return text.replaceRange(at, closeStart, "\n\n$block\n${parent.indent}")
+    }
+
+    /**
+     * Insert [xml] as [parent]'s child at [index], pushing the rest down.
+     *
+     * Order is position for a LinearLayout, so a drag that lands between two widgets has to insert
+     * between them — appending and letting the user sort it out afterwards would make dragging
+     * useless for the one container where dragging matters most.
+     */
+    fun withChildAt(parent: Element, index: Int, xml: String): String {
+        val before = parent.children.getOrNull(index) ?: return withChild(parent, xml)
+        val childIndent = "${parent.indent}    "
+        val block = xml.trimEnd().lines().joinToString("\n") { if (it.isBlank()) it else "$childIndent$it" }
+        // Back up to the start of the line so the insertion lands above the sibling's own indent
+        // rather than between that indent and its opening angle bracket.
+        var at = before.range.first
+        while (at > 0 && text[at - 1] != '\n') {
+            if (!text[at - 1].isWhitespace()) return text.replaceRange(before.range.first, before.range.first, "$block\n\n$childIndent")
+            at--
+        }
+        return text.replaceRange(at, at, "$block\n\n")
+    }
+
+    /**
+     * Ensure the root declares [prefixes], adding any it lacks.
+     *
+     * Dropping a `MaterialCardView` into a layout whose root has no `xmlns:app` produces a file that
+     * does not compile — the designer would have broken the build in order to add a widget. Checked
+     * on every insert rather than assumed, because a hand-written layout often declares only
+     * `android`.
+     */
+    fun withNamespaces(prefixes: List<String>): String {
+        val root = root ?: return text
+        var result = text
+        var doc = this
+        prefixes.forEach { prefix ->
+            val name = "xmlns:$prefix"
+            if (doc.root?.attributes?.any { it.name == name } == true) return@forEach
+            val uri = NAMESPACE_URIS[prefix] ?: return@forEach
+            result = doc.withAttribute(doc.root ?: root, name, uri)
+            doc = parse(result)
+        }
+        return result
     }
 
     /** Remove an element and the blank line it left behind. */
@@ -114,7 +160,22 @@ internal class LayoutDocument private constructor(val text: String, val root: El
         var end = element.range.last + 1
         while (end < text.length && text[end] != '\n') end++
         if (end < text.length) end++
-        return text.removeRange(start, end)
+        return collapseBlankRun(text.removeRange(start, end), start)
+    }
+
+    /**
+     * Collapse the run of newlines at [at] down to a single blank line.
+     *
+     * A widget usually has a blank line on either side of it, and removing the widget leaves both —
+     * so the gap where it used to be stays in the file as a hole that grows with every edit. Applied
+     * only at the seam, so the rest of the user's spacing is exactly as they wrote it.
+     */
+    private fun collapseBlankRun(text: String, at: Int): String {
+        var from = at
+        while (from > 0 && text[from - 1] == '\n') from--
+        var to = at
+        while (to < text.length && text[to] == '\n') to++
+        return if (to - from <= 2) text else text.replaceRange(from, to, "\n\n")
     }
 
     private fun escape(value: String): String = value
@@ -123,6 +184,13 @@ internal class LayoutDocument private constructor(val text: String, val root: El
         .replace("<", "&lt;")
 
     companion object {
+
+        /** The prefixes a layout can meaningfully declare, and what they must point at. */
+        private val NAMESPACE_URIS = mapOf(
+            "android" to "http://schemas.android.com/apk/res/android",
+            "app" to "http://schemas.android.com/apk/res-auto",
+            "tools" to "http://schemas.android.com/tools",
+        )
 
         fun parse(text: String): LayoutDocument = LayoutDocument(text, Parser(text).parseRoot())
     }

@@ -71,9 +71,32 @@ internal class LayoutRenderer(
     /** Every view built, by the element it came from — the hit test and the outline read this. */
     val views = LinkedHashMap<LayoutDocument.Element, View>()
 
+    /** The view the layout's root element became, and the origin every offset here is measured from. */
+    var rootView: View? = null
+        private set
+
     fun render(root: LayoutDocument.Element): View {
         views.clear()
-        return build(root, parentTag = null)
+        return build(root, parentTag = null).also { rootView = it }
+    }
+
+    /**
+     * [view]'s position relative to the rendered root — the canvas's own coordinate space.
+     *
+     * Stopping at the root is the whole point. Walking on up through the host reaches the window,
+     * and the resulting coordinates are then in a different frame from the touch positions they are
+     * compared against — which does not fail loudly, it just means nothing is ever under the finger.
+     */
+    fun offsetOf(view: View): Pair<Int, Int> {
+        var x = 0
+        var y = 0
+        var current: View? = view
+        while (current != null && current !== rootView) {
+            x += current.left
+            y += current.top
+            current = current.parent as? View
+        }
+        return x to y
     }
 
     private fun build(element: LayoutDocument.Element, parentTag: String?): View {
@@ -122,15 +145,23 @@ internal class LayoutRenderer(
      * A designer aid — an empty ViewGroup or a zero-height widget is invisible otherwise, and "I
      * cannot see it" and "it is not there" are the two things a layout tool must let you tell apart.
      */
-    fun outlineAll() {
+    /**
+     * [strokeDensity] is the *screen's* density, not this renderer's.
+     *
+     * These outlines are the designer's chrome, not part of the layout: at a fit-to-pane zoom the
+     * render density can fall to 0.7, and a hairline that thin at 20% alpha is not faint — it is
+     * gone. The bounds have to stay legible at every zoom, which means they are the one thing here
+     * measured against the screen rather than against the device being previewed.
+     */
+    fun outlineAll(strokeDensity: Float = density) {
         views.values.forEach { view ->
-            if (view.foreground == null) view.foreground = BoundsDrawable(density, 0x3300A0FF)
+            if (view.foreground == null) view.foreground = BoundsDrawable(strokeDensity, 0x6600A0FF)
         }
     }
 
     /** Outline the selected view, on top of any bounds outline it already carries. */
-    fun outlineSelection(target: View, color: Int) {
-        target.foreground = BoundsDrawable(density * 2f, color)
+    fun outlineSelection(target: View, color: Int, strokeDensity: Float = density) {
+        target.foreground = BoundsDrawable(strokeDensity * 2f, color)
     }
 
     /** True when this element is drawn as itself rather than as a placeholder. */
