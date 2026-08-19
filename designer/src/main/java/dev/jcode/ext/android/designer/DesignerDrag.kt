@@ -51,11 +51,16 @@ internal data class DragState(val payload: DragPayload, val position: Offset)
 internal data class DropTarget(
     val containerPath: String,
     val index: Int,
-    /** The container, in canvas pixels. */
+    /** Which surface resolved this, and therefore which one draws it. */
+    val surface: DropSurface,
+    /** The container, in that surface's own pixels. */
     val container: Rect,
     /** The gap the widget will land in, when child order is what decides position; else null. */
     val line: Rect?,
 )
+
+/** The two places a drag can be dropped. */
+internal enum class DropSurface { Canvas, Tree }
 
 /**
  * Long-press to pick up, drag to move, lift to drop.
@@ -156,6 +161,8 @@ internal fun Modifier.canvasGestures(
  */
 internal class RendererRef {
     var renderer: CanvasBounds? = null
+    /** Where the canvas sits, so a root-coordinate drag can be asked about in canvas pixels. */
+    var coords: androidx.compose.ui.layout.LayoutCoordinates? = null
     /** The element the in-flight drag picked up, so the drop test can ignore it. */
     var moving: DesignElement? = null
     /**
@@ -206,7 +213,7 @@ internal fun dropTargetAt(
     if (axis == null || kids.isEmpty()) {
         // A FrameLayout or a ConstraintLayout positions its children by their own attributes, so
         // there is no "between" to point at — the container itself is the whole answer.
-        return DropTarget(path, kids.size, box, null)
+        return DropTarget(path, kids.size, DropSurface.Canvas, box, null)
     }
 
     var index = kids.size
@@ -232,7 +239,92 @@ internal fun dropTargetAt(
     } else {
         Rect(edge - 2f, box.top, edge + 2f, box.bottom)
     }
-    return DropTarget(path, index, box, line)
+    return DropTarget(path, index, DropSurface.Canvas, box, line)
+}
+
+/**
+ * The layer tree as somewhere to drop.
+ *
+ * The canvas can only offer what it draws, and a tree exists precisely because a canvas cannot show
+ * everything: an empty container has no area to aim at, a `gone` view none at all, and in portrait
+ * the canvas may not even be on screen beside the list. Dropping between two rows is the gesture
+ * anyone looking at an outline reaches for, so the tree resolves drops itself rather than asking the
+ * user to find the same widget on the canvas first.
+ *
+ * Rows report their own boxes, in root coordinates, for the same reason everything else here does —
+ * it is the one frame the tree, the canvas and the palette all share.
+ */
+internal class TreeDropSurface {
+
+    private class RowBox(val element: DesignElement, val path: String, val box: Rect)
+
+    private val rows = LinkedHashMap<String, RowBox>()
+
+    /** The tree's own top-left, so a target can be handed back in tree coordinates. */
+    var origin: Offset = Offset.Zero
+
+    /** The whole tree, for deciding whether a point is over it at all. */
+    var bounds: Rect = Rect.Zero
+
+    fun record(element: DesignElement, path: String, box: Rect) {
+        rows[path] = RowBox(element, path, box)
+    }
+
+    fun forget(path: String) {
+        rows.remove(path)
+    }
+
+    operator fun contains(atRoot: Offset): Boolean = bounds.contains(atRoot)
+
+    /**
+     * Where [atRoot] would drop.
+     *
+     * A row is three zones: the top and bottom thirds place the widget beside it, and the middle
+     * places it inside — but only when the row can hold children, since "inside a TextView" is not
+     * a thing and silently meaning "after it" is better than refusing the drop.
+     */
+    fun resolve(
+        atRoot: Offset,
+        root: DesignElement,
+        moving: DesignElement?,
+        accepts: (DesignElement) -> Boolean,
+    ): DropTarget? {
+        if (!contains(atRoot)) return null
+        val excluded: Set<DesignElement> = moving?.flatten()?.toSet().orEmpty()
+        val row = rows.values
+            .filter { it.element !in excluded }
+            .firstOrNull { atRoot.y >= it.box.top && atRoot.y < it.box.bottom }
+            ?: return null
+
+        val third = row.box.height / 3f
+        val inside = atRoot.y > row.box.top + third &&
+            atRoot.y < row.box.bottom - third &&
+            accepts(row.element)
+
+        if (inside) {
+            val kids = row.element.children.count { it !in excluded }
+            return DropTarget(row.path, kids, DropSurface.Tree, row.box.shift(origin), null)
+        }
+
+        val parentPath = pathOf(pathParts(row.path).dropLast(1))
+        val parent = elementAt(root, parentPath) ?: return null
+        val siblings = parent.children.filter { it !in excluded }
+        val at = siblings.indexOf(row.element)
+        if (at < 0) return null
+        val after = atRoot.y >= row.box.center.y
+        val index = if (after) at + 1 else at
+        val edge = if (after) row.box.bottom else row.box.top
+        val line = Rect(row.box.left, edge - 2f, row.box.right, edge + 2f)
+        return DropTarget(
+            parentPath,
+            index,
+            DropSurface.Tree,
+            rows[parentPath]?.box?.shift(origin) ?: Rect.Zero,
+            line.shift(origin),
+        )
+    }
+
+    private fun Rect.shift(by: Offset) = translate(-by.x, -by.y)
 }
 
 private enum class Axis { Vertical, Horizontal }

@@ -111,6 +111,10 @@ internal fun DesignerScreen(
     var drag by remember { mutableStateOf<DragState?>(null) }
     var hover by remember { mutableStateOf<DropTarget?>(null) }
     var rootCoords by remember { mutableStateOf<LayoutCoordinates?>(null) }
+    // Both surfaces are keyed to the tree they describe: an edit reparses, and a box recorded
+    // against the old elements would answer for a node that no longer exists.
+    val canvasRef = remember { RendererRef() }
+    val treeSurface = remember(document) { TreeDropSurface() }
 
     val root = document.root
     if (root == null) {
@@ -168,6 +172,21 @@ internal fun DesignerScreen(
         }
     }
 
+    // The tree is asked first: it is the more specific answer, and when the pointer is over it the
+    // canvas underneath is not what the user is aiming at.
+    LaunchedEffect(drag?.position, drag?.payload, root) {
+        val at = drag?.position
+        if (at == null) return@LaunchedEffect
+        val moving = (drag?.payload as? DragPayload.Move)?.let { elementAt(root, it.path) }
+        val built = canvasRef.renderer
+        hover = treeSurface.resolve(at, root, moving) { element ->
+            built?.acceptsChildren(element) ?: element.children.isNotEmpty()
+        } ?: built?.let { canvas ->
+            val coords = canvasRef.coords?.takeIf { it.isAttached } ?: return@let null
+            dropTargetAt(canvas, root, at - coords.positionInRoot(), moving)
+        }
+    }
+
     Box(Modifier.fillMaxSize().onGloballyPositioned { rootCoords = it }) {
     Column(Modifier.fillMaxSize()) {
         DesignerToolbar(
@@ -219,7 +238,7 @@ internal fun DesignerScreen(
                     onSelect = { selectedPath = it },
                     drag = drag,
                     hover = hover,
-                    onHover = { hover = it },
+                    ref = canvasRef,
                     onPickUp = { path, label, at ->
                         drag = DragState(DragPayload.Move(path, label), at)
                     },
@@ -244,6 +263,8 @@ internal fun DesignerScreen(
                         onDragStart = { payload, at -> drag = DragState(payload, at) },
                         onDragMove = { at -> drag = drag?.copy(position = at) },
                         onDragEnd = { dropped -> applyDrop(if (dropped) hover else null) },
+                        surface = treeSurface,
+                        hover = hover,
                         modifier = Modifier.width(200.dp).fillMaxHeight(),
                     )
                     VerticalRule()
@@ -302,6 +323,8 @@ internal fun DesignerScreen(
                                 onDragStart = { payload, at -> drag = DragState(payload, at) },
                                 onDragMove = { at -> drag = drag?.copy(position = at) },
                                 onDragEnd = { dropped -> applyDrop(if (dropped) hover else null) },
+                                surface = treeSurface,
+                                hover = hover,
                                 modifier = Modifier.fillMaxSize(),
                             )
                             PanelTab.Palette -> PalettePanel(
@@ -386,6 +409,7 @@ private fun VerticalRule() {
 private fun DesignCanvas(
     root: DesignElement,
     format: DesignFormat,
+    ref: RendererRef,
     resources: ResourceTable,
     device: DeviceSize,
     dark: Boolean,
@@ -397,20 +421,13 @@ private fun DesignCanvas(
     onSelect: (String?) -> Unit,
     drag: DragState?,
     hover: DropTarget?,
-    onHover: (DropTarget?) -> Unit,
     onPickUp: (path: String, label: String, at: Offset) -> Unit,
     onDragTo: (Offset) -> Unit,
     onDrop: (dropped: Boolean) -> Unit,
 ) {
     val outline = MaterialTheme.colorScheme.primary
     val screenDensity = LocalDensity.current.density
-    // Hoisted out of the AndroidView because the gestures need the views it built — see RendererRef
-    // for why it is a field rather than state.
-    val ref = remember { RendererRef() }
     var canvasCoords by remember { mutableStateOf<LayoutCoordinates?>(null) }
-
-    fun toCanvas(inRoot: Offset): Offset =
-        canvasCoords?.takeIf { it.isAttached }?.let { inRoot - it.positionInRoot() } ?: inRoot
 
     BoxWithConstraints(
         modifier = Modifier.fillMaxSize().padding(10.dp),
@@ -431,7 +448,7 @@ private fun DesignCanvas(
 
             Box(
                 modifier = Modifier.fillMaxWidth().weight(1f)
-                    .onGloballyPositioned { canvasCoords = it },
+                    .onGloballyPositioned { canvasCoords = it; ref.coords = it },
             ) {
             if (format != DesignFormat.AndroidXml) {
                 // Compose is drawn by the real Compose runtime the plugin is already living in —
@@ -553,21 +570,7 @@ private fun DesignCanvas(
                 ),
             )
 
-            // Every drag is resolved here, from the position alone, whatever started it. The palette
-            // and the layer tree have no idea where the canvas is — see DesignerDrag for why root
-            // coordinates are the contract between them — and a second copy of this for canvas drags
-            // would be a second chance to disagree with this one.
-            val at = drag?.position
-            val payload = drag?.payload
-            LaunchedEffect(at, payload) {
-                val built = ref.renderer
-                if (at != null && built != null) {
-                    val moving = (payload as? DragPayload.Move)?.let { elementAt(root, it.path) }
-                    onHover(dropTargetAt(built, root, toCanvas(at), moving))
-                }
-            }
-
-            if (drag != null) {
+            if (drag != null && hover?.surface != DropSurface.Tree) {
                 val fill = outline.copy(alpha = 0.12f)
                 Canvas(Modifier.matchParentSize()) {
                     hover?.let { target ->

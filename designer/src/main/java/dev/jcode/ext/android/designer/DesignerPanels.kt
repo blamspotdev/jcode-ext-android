@@ -1,5 +1,6 @@
 package dev.jcode.ext.android.designer
 
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -30,6 +31,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -38,6 +40,11 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -196,16 +203,41 @@ internal fun LayerTree(
     onDragStart: (DragPayload, Offset) -> Unit,
     onDragMove: (Offset) -> Unit,
     onDragEnd: (Boolean) -> Unit,
+    surface: TreeDropSurface,
+    hover: DropTarget?,
     modifier: Modifier = Modifier,
 ) {
-    Column(modifier = modifier.verticalScroll(rememberScrollState()).padding(6.dp)) {
-        Text(
-            "Layers",
-            style = MaterialTheme.typography.labelMedium,
-            fontWeight = FontWeight.SemiBold,
-            modifier = Modifier.padding(start = 4.dp, bottom = 4.dp),
-        )
-        TreeRows(root, root, 0, selectedPath, onSelect, onDragStart, onDragMove, onDragEnd)
+    val outline = MaterialTheme.colorScheme.primary
+    Box(
+        modifier = modifier.onGloballyPositioned {
+            // Bounds are clipped — the right answer for "is the finger over the tree". The origin is
+            // not, because it is what row boxes are measured back from and they are not clipped.
+            surface.bounds = it.boundsInRoot()
+            surface.origin = it.positionInRoot()
+        },
+    ) {
+        Column(Modifier.verticalScroll(rememberScrollState()).padding(6.dp)) {
+            Text(
+                "Layers",
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.padding(start = 4.dp, bottom = 4.dp),
+            )
+            TreeRows(root, root, 0, selectedPath, onSelect, onDragStart, onDragMove, onDragEnd, surface)
+        }
+        // The tree draws its own target: a line between two rows for a move beside them, the row
+        // itself filled for a move into them.
+        if (hover != null && hover.surface == DropSurface.Tree) {
+            Canvas(Modifier.matchParentSize()) {
+                val line = hover.line
+                if (line != null) {
+                    drawRect(outline, line.topLeft, line.size)
+                } else {
+                    drawRect(outline.copy(alpha = 0.18f), hover.container.topLeft, hover.container.size)
+                    drawRect(outline, hover.container.topLeft, hover.container.size, style = Stroke(2f))
+                }
+            }
+        }
     }
 }
 
@@ -219,14 +251,27 @@ private fun TreeRows(
     onDragStart: (DragPayload, Offset) -> Unit,
     onDragMove: (Offset) -> Unit,
     onDragEnd: (Boolean) -> Unit,
+    surface: TreeDropSurface,
 ) {
     val path = elementPath(root, element) ?: return
     val selected = path == selectedPath
     val id = element.value("id")?.substringAfterLast('/')
 
+    DisposableEffect(path) { onDispose { surface.forget(path) } }
+
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            .onGloballyPositioned { coords ->
+                // Unclipped, so a row half-scrolled out of view still reports its real height and
+                // its thirds still divide where the user can see them dividing.
+                val at = coords.positionInRoot()
+                surface.record(
+                    element,
+                    path,
+                    Rect(at.x, at.y, at.x + coords.size.width, at.y + coords.size.height),
+                )
+            }
             .background(
                 if (selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.16f) else androidx.compose.ui.graphics.Color.Transparent,
                 RoundedCornerShape(4.dp),
@@ -264,7 +309,7 @@ private fun TreeRows(
         }
     }
     element.children.forEach {
-        TreeRows(root, it, depth + 1, selectedPath, onSelect, onDragStart, onDragMove, onDragEnd)
+        TreeRows(root, it, depth + 1, selectedPath, onSelect, onDragStart, onDragMove, onDragEnd, surface)
     }
 }
 
