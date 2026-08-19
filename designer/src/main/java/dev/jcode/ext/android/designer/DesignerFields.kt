@@ -137,7 +137,7 @@ internal fun InspectorToggle(
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.weight(1f),
         )
-        CompositionLocalProvider(LocalMinimumInteractiveComponentSize provides 36.dp) {
+        CompositionLocalProvider(LocalMinimumInteractiveComponentSize provides ROW_HEIGHT) {
             Switch(checked = checked, onCheckedChange = onCheckedChange)
         }
     }
@@ -152,7 +152,7 @@ private fun FieldBox(modifier: Modifier = Modifier, content: @Composable () -> U
         modifier = modifier,
     ) {
         Box(
-            modifier = Modifier.fillMaxWidth().heightIn(min = 34.dp).padding(horizontal = 8.dp),
+            modifier = Modifier.fillMaxWidth().heightIn(min = ROW_HEIGHT).padding(horizontal = 8.dp),
             contentAlignment = Alignment.CenterStart,
         ) {
             content()
@@ -205,3 +205,13 @@ private fun TinyIcon(
 
 /** Wide enough for `layout_width` and `verticalArrangement`, narrow enough to leave a value room. */
 private val LABEL_WIDTH = 96.dp
+
+/**
+ * One row, whether it holds a field or a switch.
+ *
+ * Shared rather than tuned per control: fields and toggles sit directly above one another in the
+ * inspector, and two heights a couple of dp apart is a ragged edge nobody chose. The number is the
+ * switch's — 36dp is the smallest touch target worth keeping, so it is the one that cannot move,
+ * and it is still four short of what Settings gives a field on its own page.
+ */
+private val ROW_HEIGHT = 36.dp
