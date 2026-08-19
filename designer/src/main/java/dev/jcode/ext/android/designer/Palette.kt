@@ -275,6 +275,83 @@ internal object Palette {
             rendersForReal = false,
             keywords = "symbol glyph",
         ),
+
+        // ---- Flutter ----
+        //
+        // Not rendered, only approximated — there is no Dart runtime in this process. Every entry
+        // is marked as such so the palette says which of its rows the canvas can vouch for.
+        flutter("Text", TEXT, "Text('Text')", keywords = "label caption"),
+        flutter(
+            "Heading", TEXT,
+            "Text(\n  'Heading',\n  style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),\n)",
+            keywords = "title h1 bold",
+        ),
+        flutter(
+            "TextField", TEXT,
+            "TextField(\n  decoration: InputDecoration(labelText: 'Label'),\n)",
+            keywords = "input form",
+        ),
+        flutter(
+            "ElevatedButton", BUTTONS,
+            "ElevatedButton(\n  onPressed: () {},\n  child: Text('Button'),\n)",
+            keywords = "action tap",
+        ),
+        flutter(
+            "TextButton", BUTTONS,
+            "TextButton(\n  onPressed: () {},\n  child: Text('Button'),\n)",
+            keywords = "action flat",
+        ),
+        flutter("Column", LAYOUTS, "Column(\n  children: [],\n)", keywords = "vertical stack"),
+        flutter("Row", LAYOUTS, "Row(\n  children: [],\n)", keywords = "horizontal"),
+        flutter("Container", LAYOUTS, "Container(\n  padding: EdgeInsets.all(16),\n)", keywords = "box padding"),
+        flutter("Padding", LAYOUTS, "Padding(\n  padding: EdgeInsets.all(8),\n)", keywords = "inset spacing"),
+        flutter("Center", LAYOUTS, "Center()", keywords = "middle align"),
+        flutter("SizedBox", LAYOUTS, "SizedBox(height: 16)", keywords = "gap spacer"),
+        flutter("Expanded", LAYOUTS, "Expanded()", keywords = "fill weight flex"),
+        flutter("ListView", LAYOUTS, "ListView(\n  children: [],\n)", keywords = "scrolling list"),
+        flutter("Card", MATERIAL, "Card(\n  child: Padding(\n    padding: EdgeInsets.all(16),\n  ),\n)", keywords = "surface"),
+        flutter("Divider", MATERIAL, "Divider()", keywords = "rule separator"),
+        flutter("Icon", MATERIAL, "Icon(Icons.star)", keywords = "symbol glyph"),
+
+        // ---- React Native ----
+        //
+        // Prerequisites read `Name:module`; the import is merged into an existing one rather than
+        // a second line being added beside it. See JsxDocument.withPrerequisites.
+        native("Text", TEXT, "<Text>Text</Text>", listOf("Text"), keywords = "label caption"),
+        native(
+            "Heading", TEXT, "<Text style={{ fontSize: 24, fontWeight: 'bold' }}>Heading</Text>",
+            listOf("Text"), keywords = "title h1 bold",
+        ),
+        native(
+            "TextInput", TEXT, "<TextInput placeholder=\"Enter text\" />",
+            listOf("TextInput"), keywords = "input form field",
+        ),
+        native(
+            "Button", BUTTONS, "<Button title=\"Button\" onPress={() => {}} />",
+            listOf("Button"), keywords = "action tap",
+        ),
+        native(
+            "Pressable", BUTTONS, "<Pressable onPress={() => {}}>\n  <Text>Press me</Text>\n</Pressable>",
+            listOf("Pressable", "Text"), keywords = "touchable tap",
+        ),
+        native("View", LAYOUTS, "<View />", listOf("View"), keywords = "container box"),
+        native(
+            "ScrollView", LAYOUTS, "<ScrollView />", listOf("ScrollView"),
+            keywords = "scrolling overflow",
+        ),
+        native(
+            "SafeAreaView", LAYOUTS, "<SafeAreaView />", listOf("SafeAreaView"),
+            keywords = "insets notch",
+        ),
+        native(
+            "FlatList", LAYOUTS,
+            "<FlatList\n  data={[]}\n  renderItem={({ item }) => <Text>{item}</Text>}\n/>",
+            listOf("FlatList", "Text"), keywords = "list rows",
+        ),
+        native(
+            "Image", WIDGETS, "<Image source={{ uri: '' }} style={{ width: 48, height: 48 }} />",
+            listOf("Image"), keywords = "picture photo",
+        ),
     )
 
     /** Every category that has an entry in [format], in display order. */
@@ -308,6 +385,37 @@ internal object Palette {
         prerequisites = imports,
         keywords = keywords,
         format = DesignFormat.Compose,
+    )
+
+    private fun flutter(
+        label: String,
+        category: String,
+        code: String,
+        keywords: String = "",
+    ) = PaletteItem(
+        label = label,
+        category = category,
+        xml = code,
+        rendersForReal = false,
+        prerequisites = listOf("package:flutter/material.dart"),
+        keywords = keywords,
+        format = DesignFormat.Flutter,
+    )
+
+    private fun native(
+        label: String,
+        category: String,
+        code: String,
+        imports: List<String>,
+        keywords: String = "",
+    ) = PaletteItem(
+        label = label,
+        category = category,
+        xml = code,
+        rendersForReal = false,
+        prerequisites = imports.map { "$it:react-native" },
+        keywords = keywords,
+        format = DesignFormat.ReactNative,
     )
 
     private const val M3 = "androidx.compose.material3"

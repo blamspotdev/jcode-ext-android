@@ -110,7 +110,10 @@ internal fun ComposeNode(
         element.children.forEach { ComposeNode(it, bounds, showBounds, selected) }
     }
 
-    when (element.tag) {
+    // Flutter and React Native are drawn through their nearest Compose equivalent. This is a
+    // likeness, not a rendering — a `Container` is not a `Box` and the toolbar says so — but it is
+    // a far better answer than a tree of grey rectangles for describing a screen at a glance.
+    when (ALIASES[element.tag] ?: element.tag) {
         "Column", "LazyColumn" -> Column(
             modifier = modifier,
             verticalArrangement = verticalArrangement(element.value("verticalArrangement")),
@@ -138,7 +141,7 @@ internal fun ComposeNode(
         "Spacer" -> Spacer(modifier = modifier)
 
         "Text" -> Text(
-            text = literal(element.value("text")) ?: "Text",
+            text = literal(element.textValue()) ?: "Text",
             modifier = modifier,
             fontSize = element.value("fontSize")?.let { sp(it) } ?: MaterialTheme.typography.bodyLarge.fontSize,
             color = element.value("color")?.let { colour(it) } ?: Color.Unspecified,
@@ -147,6 +150,7 @@ internal fun ComposeNode(
         )
 
         "Button" -> Button(onClick = {}, modifier = modifier) { children.orLabel(element, "Button") }
+        "Center" -> Box(modifier = modifier.fillMaxWidth(), contentAlignment = Alignment.Center) { children() }
         "OutlinedButton" -> OutlinedButton(onClick = {}, modifier = modifier) { children.orLabel(element, "Button") }
         "TextButton" -> TextButton(onClick = {}, modifier = modifier) { children.orLabel(element, "Button") }
 
@@ -177,8 +181,17 @@ internal fun ComposeNode(
 /** A button written as `Button(onClick = …) { Text("Go") }` has a child; one written bare does not. */
 @Composable
 private fun (@Composable () -> Unit).orLabel(element: DesignElement, fallback: String) {
-    if (element.children.isEmpty()) Text(literal(element.value("text")) ?: fallback) else this()
+    if (element.children.isEmpty()) Text(literal(element.textValue()) ?: fallback) else this()
 }
+
+/**
+ * The value that reads as this element's text.
+ *
+ * Four languages, four names for the same thing: Compose calls it `text`, Flutter calls it `data`,
+ * React Native puts it between the tags, and a React Native `Button` calls it `title`.
+ */
+private fun DesignElement.textValue(): String? =
+    value("text") ?: value("data") ?: value("title")
 
 @Composable
 private fun Placeholder(tag: String, modifier: Modifier) {
@@ -259,8 +272,11 @@ private fun sp(expression: String) = (NUMBER.find(expression)?.value?.toFloatOrN
 /** `"Hello"` becomes Hello; anything that is not a string literal is shown as the expression it is. */
 private fun literal(expression: String?): String? {
     val e = expression?.trim() ?: return null
-    if (e.length >= 2 && e.startsWith("\"") && e.endsWith("\"")) return e.substring(1, e.length - 1)
     if (e.startsWith("\"\"\"") && e.endsWith("\"\"\"") && e.length >= 6) return e.substring(3, e.length - 3)
+    // Single quotes as well as double: Dart and JavaScript both prefer them.
+    for (quote in listOf("\"", "'")) {
+        if (e.length >= 2 && e.startsWith(quote) && e.endsWith(quote)) return e.substring(1, e.length - 1)
+    }
     return e
 }
 
@@ -338,9 +354,46 @@ private fun textAlign(expression: String?) = when (expression?.substringAfterLas
     else -> null
 }
 
+/**
+ * What to draw a foreign widget as.
+ *
+ * Chosen for what the widget *does to its children*, since that is what a canvas shows: Flutter's
+ * `Container` and React Native's `View` are boxes that stack, a `SizedBox` is a gap, a
+ * `TouchableOpacity` is a wrapper that does not change layout. Anything absent from here falls
+ * through to the labelled placeholder, which is the right answer for a widget whose appearance this
+ * cannot honestly guess.
+ */
+private val ALIASES = mapOf(
+    // Flutter
+    "Container" to "Box",
+    "Padding" to "Box",
+    "Stack" to "Box",
+    "Expanded" to "Box",
+    "Flexible" to "Box",
+    "SizedBox" to "Spacer",
+    "ListView" to "Column",
+    "Wrap" to "Row",
+    "ElevatedButton" to "Button",
+    "FilledButton" to "Button",
+    "Divider" to "HorizontalDivider",
+    "SingleChildScrollView" to "Column",
+    // React Native
+    "View" to "Column",
+    "SafeAreaView" to "Column",
+    "ScrollView" to "Column",
+    "FlatList" to "Column",
+    "Pressable" to "Box",
+    "TouchableOpacity" to "Box",
+    "TouchableHighlight" to "Box",
+    "TextInput" to "OutlinedTextField",
+)
+
 private val CONTAINERS = setOf(
     "Column", "Row", "Box", "Card", "Surface", "Scaffold", "LazyColumn", "LazyRow",
     "Button", "OutlinedButton", "TextButton",
+    "Container", "Padding", "Stack", "Center", "Expanded", "Flexible", "ListView", "Wrap",
+    "ElevatedButton", "SingleChildScrollView",
+    "View", "SafeAreaView", "ScrollView", "FlatList", "Pressable", "TouchableOpacity",
 )
 private val LABEL = Regex("\"([^\"]*)\"")
 private val CALL = Regex("""\.([A-Za-z]\w*)\(([^()]*(?:\([^()]*\)[^()]*)*)\)""")

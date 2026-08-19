@@ -595,3 +595,10 @@ entry:
       # A composable cannot be told from any other Kotlin file by its path, so ask the file.
       - fileTypes: [kt]
         contains: "@Composable"
+      # Flutter and React Native, drawn as an approximation and labelled as one: there is no Dart
+      # or JS runtime in JCode's process, so the canvas shows structure rather than a guess at
+      # pixels. Both are decided by content for the same reason Kotlin is.
+      - fileTypes: [dart]
+        contains: "Widget build("
+      - fileTypes: [jsx, tsx]
+        contains: "return"

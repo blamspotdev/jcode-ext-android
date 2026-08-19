@@ -61,6 +61,8 @@ internal fun DesignerToolbar(
     onBounds: (Boolean) -> Unit,
     zoom: Float?,
     onZoom: (Float?) -> Unit,
+    /** True when the canvas is a likeness rather than a rendering, and must say so. */
+    approximate: Boolean,
     status: String,
 ) {
     var deviceMenu by remember { mutableStateOf(false) }
@@ -98,6 +100,18 @@ internal fun DesignerToolbar(
         )
         ToolIcon(Icons.Rounded.Add, "Zoom in") { onZoom(((zoom ?: 1f) + 0.15f).coerceAtMost(3f)) }
         ToolIcon(Icons.Rounded.FitScreen, "Fit to pane") { onZoom(null) }
+
+        if (approximate) {
+            Text(
+                text = "Approximate",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onTertiaryContainer,
+                modifier = Modifier
+                    .padding(start = 6.dp)
+                    .background(MaterialTheme.colorScheme.tertiaryContainer, RoundedCornerShape(4.dp))
+                    .padding(horizontal = 6.dp, vertical = 2.dp),
+            )
+        }
 
         Text(
             text = status,

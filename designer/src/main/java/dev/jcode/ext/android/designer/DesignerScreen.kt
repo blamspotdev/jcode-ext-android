@@ -79,6 +79,8 @@ internal fun DesignerScreen(
     val document = remember(source, format) {
         when (format) {
             DesignFormat.Compose -> ComposeDocument.parse(source)
+            DesignFormat.Flutter -> DartDocument.parse(source)
+            DesignFormat.ReactNative -> JsxDocument.parse(source)
             else -> LayoutDocument.parse(source)
         }
     }
@@ -101,6 +103,8 @@ internal fun DesignerScreen(
             Text(
                 when (format) {
                     DesignFormat.Compose -> "No composable UI in this file yet."
+                    DesignFormat.Flutter -> "No widget tree in this file yet."
+                    DesignFormat.ReactNative -> "No markup returned from this file yet."
                     null -> "The designer has nothing to show for this kind of file."
                     else -> "This file has no layout element yet."
                 },
@@ -163,6 +167,9 @@ internal fun DesignerScreen(
             // While a drag is in flight the status line says where it would land. A drop that
             // quietly does nothing is the worst outcome here, and this is what tells the user in
             // advance that they are not over a container.
+            // Named, not implied. A picture the designer cannot vouch for has to say so, or the
+            // user reasonably takes it for what the framework would actually draw.
+            approximate = !document.format.rendersNatively,
             status = when {
                 drag != null -> hover?.let { target ->
                     val into = elementAt(root, target.containerPath)?.tag?.substringAfterLast('.')
@@ -402,9 +409,11 @@ private fun DesignCanvas(
                 modifier = Modifier.fillMaxWidth().weight(1f)
                     .onGloballyPositioned { canvasCoords = it },
             ) {
-            if (format == DesignFormat.Compose) {
-                // Drawn by the real Compose runtime the plugin is already living in — see
-                // ComposeCanvas for why that is the whole trick.
+            if (format != DesignFormat.AndroidXml) {
+                // Compose is drawn by the real Compose runtime the plugin is already living in —
+                // see ComposeCanvas for why that is the whole trick. Flutter and React Native are
+                // drawn by the same code through a name mapping, which is an approximation and is
+                // labelled as one in the toolbar; there is no Dart or JS runtime here to do better.
                 val bounds = remember(root) { ComposeBounds().also { ref.renderer = it } }
                 val selectedElement = selectedPath
                     ?.let { path -> root.flatten().firstOrNull { elementPath(root, it) == path } }
