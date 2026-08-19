@@ -46,6 +46,26 @@ internal interface DesignDocument {
 
     /** The attribute names the properties panel offers for [element], most useful first. */
     fun propertiesFor(element: DesignElement): List<String>
+
+    /**
+     * The values worth offering for [property], or empty when it is genuinely free-form.
+     *
+     * Offered rather than enforced. Most of these *are* closed sets — an `Alignment`, a `visibility`
+     * — but not all: `Arrangement.spacedBy(8.dp)` is a call with a number in it, and a project can
+     * define its own. So the field stays editable and this fills the menu beside it, which is the
+     * difference between knowing the vocabulary and having to remember how it is spelled.
+     */
+    fun suggestionsFor(element: DesignElement, property: String): List<String> = emptyList()
+
+    /**
+     * Change what an element *is* — a `TextView` into a `Button`, a `Text` into a `Card`.
+     *
+     * Only the name is rewritten. The attributes stay, because most of the time this is used right
+     * after adding the wrong thing from the palette, when they are still the defaults; and when it
+     * is not, leaving them is what lets the user see and fix what no longer applies. Undo covers the
+     * rest.
+     */
+    fun withTag(element: DesignElement, tag: String): String
 }
 
 /**

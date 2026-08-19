@@ -22,6 +22,22 @@ internal class LayoutDocument private constructor(
 
     override fun reparse(text: String): DesignDocument = parse(text)
 
+    override fun suggestionsFor(element: DesignElement, property: String): List<String> =
+        SUGGESTIONS[property].orEmpty()
+
+    override fun withTag(element: DesignElement, tag: String): String {
+        val open = element.range.first + 1
+        var result = text
+        // The closing tag first, so rewriting the opening one cannot move it.
+        if (!element.selfClosing) {
+            val close = text.lastIndexOf("</", element.range.last)
+            if (close > open) {
+                result = result.replaceRange(close + 2, close + 2 + element.tag.length, tag)
+            }
+        }
+        return result.replaceRange(open, open + element.tag.length, tag)
+    }
+
     override fun propertiesFor(element: DesignElement): List<String> {
         val textish = TEXT_TAGS.any { element.tag.endsWith(it) }
         return COMMON_ATTRS + if (textish) TEXT_ATTRS else emptyList()
@@ -168,6 +184,30 @@ internal class LayoutDocument private constructor(
             "android:text", "android:textSize", "android:textColor", "android:textStyle", "android:gravity",
         )
         private val TEXT_TAGS = listOf("TextView", "Button", "EditText", "CheckBox", "Switch")
+
+        private val GRAVITY = listOf(
+            "start", "center", "end", "top", "bottom",
+            "center_horizontal", "center_vertical", "center|start", "center|end",
+        )
+
+        /** The attributes whose values are a fixed vocabulary rather than free text. */
+        private val SUGGESTIONS = mapOf(
+            "android:layout_width" to listOf("match_parent", "wrap_content", "0dp"),
+            "android:layout_height" to listOf("match_parent", "wrap_content", "0dp", "?attr/actionBarSize"),
+            "android:visibility" to listOf("visible", "invisible", "gone"),
+            "android:orientation" to listOf("vertical", "horizontal"),
+            "android:textStyle" to listOf("normal", "bold", "italic", "bold|italic"),
+            "android:gravity" to GRAVITY,
+            "android:layout_gravity" to GRAVITY,
+            "android:scaleType" to listOf("fitCenter", "centerCrop", "centerInside", "fitXY", "center"),
+            "android:ellipsize" to listOf("none", "start", "middle", "end", "marquee"),
+            "android:inputType" to listOf(
+                "text", "textMultiLine", "textPassword", "textEmailAddress", "number", "phone",
+            ),
+            "android:layout_margin" to listOf("4dp", "8dp", "16dp", "24dp"),
+            "android:padding" to listOf("4dp", "8dp", "16dp", "24dp"),
+            "android:textSize" to listOf("12sp", "14sp", "16sp", "20sp", "24sp", "32sp"),
+        )
 
         /** The prefixes a layout can meaningfully declare, and what they must point at. */
         private val NAMESPACE_URIS = mapOf(

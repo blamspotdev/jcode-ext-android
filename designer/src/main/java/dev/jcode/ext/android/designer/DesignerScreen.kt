@@ -676,7 +676,18 @@ private fun PropertiesPanel(
     onDragMove: (Offset) -> Unit,
     onDragEnd: (Boolean) -> Unit,
 ) {
-    Text(element.tag.substringAfterLast('.'), style = MaterialTheme.typography.titleSmall)
+    // The name is a property like any other, so it is edited like one. Its vocabulary is the
+    // palette's — every widget this format knows how to add, it also knows how to convert to.
+    var tag by remember(element.range.first, element.tag) { mutableStateOf(element.tag) }
+    InspectorField(
+        label = "widget",
+        value = tag,
+        onValueChange = { tag = it },
+        dirty = tag != element.tag,
+        onCommit = { chosen -> if (chosen.isNotBlank()) onSource(document.withTag(element, chosen)) },
+        onRevert = { tag = element.tag },
+        options = Palette.tags(document.format),
+    )
 
     document.propertiesFor(element).forEach { name ->
         val current = element.attributes.firstOrNull { it.name == name }?.value.orEmpty()
@@ -688,13 +699,14 @@ private fun PropertiesPanel(
             value = draft,
             onValueChange = { draft = it },
             dirty = draft != current,
-            onCommit = {
+            onCommit = { value ->
                 onSource(
-                    if (draft.isBlank()) document.withoutAttribute(element, name)
-                    else document.withAttribute(element, name, draft),
+                    if (value.isBlank()) document.withoutAttribute(element, name)
+                    else document.withAttribute(element, name, value),
                 )
             },
             onRevert = { draft = current },
+            options = document.suggestionsFor(element, name),
         )
     }
 

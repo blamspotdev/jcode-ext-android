@@ -1,5 +1,6 @@
 package dev.jcode.ext.android.designer
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -12,9 +13,12 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.ArrowDropDown
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Search
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LocalMinimumInteractiveComponentSize
@@ -22,6 +26,10 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.Alignment
@@ -56,12 +64,15 @@ internal fun InspectorField(
     value: String,
     onValueChange: (String) -> Unit,
     dirty: Boolean,
-    onCommit: () -> Unit,
+    onCommit: (String) -> Unit,
     onRevert: () -> Unit,
     modifier: Modifier = Modifier,
     placeholder: String = "",
     monospace: Boolean = false,
+    /** A closed-ish vocabulary for this value, offered in a menu. Empty means free text. */
+    options: List<String> = emptyList(),
 ) {
+    var menu by remember { mutableStateOf(false) }
     Row(
         modifier = modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically,
@@ -75,13 +86,46 @@ internal fun InspectorField(
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.width(LABEL_WIDTH),
         )
-        FieldBox(modifier = Modifier.weight(1f)) {
+        FieldBox(
+            modifier = Modifier.weight(1f),
+            trailing = if (options.isEmpty()) {
+                null
+            } else {
+                {
+                    Box {
+                        Icon(
+                            imageVector = Icons.Rounded.ArrowDropDown,
+                            contentDescription = "Choose a value",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(18.dp).clickable { menu = true },
+                        )
+                        DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+                            options.forEach { option ->
+                                DropdownMenuItem(
+                                    text = {
+                                        Text(option, style = MaterialTheme.typography.bodySmall)
+                                    },
+                                    // Picking commits straight away. Typing needs a confirmation
+                                    // because a half-typed value is not a value; choosing one from a
+                                    // list of valid values already is.
+                                    onClick = {
+                                        menu = false
+                                        onValueChange(option)
+                                        onCommit(option)
+                                    },
+                                )
+                            }
+                        }
+                    }
+                }
+            },
+        ) {
             FieldText(value, onValueChange, placeholder, monospace)
         }
         // Icons rather than "Apply" and "Revert": committing is a fixed pair of actions on a row
         // that is already narrow, and two words would cost more width than the value they follow.
         if (dirty) {
-            TinyIcon(Icons.Rounded.Check, "Apply", MaterialTheme.colorScheme.primary, onCommit)
+            TinyIcon(Icons.Rounded.Check, "Apply", MaterialTheme.colorScheme.primary) { onCommit(value) }
             TinyIcon(Icons.Rounded.Close, "Revert", MaterialTheme.colorScheme.onSurfaceVariant, onRevert)
         }
     }
@@ -144,18 +188,24 @@ internal fun InspectorToggle(
 }
 
 @Composable
-private fun FieldBox(modifier: Modifier = Modifier, content: @Composable () -> Unit) {
+private fun FieldBox(
+    modifier: Modifier = Modifier,
+    trailing: (@Composable () -> Unit)? = null,
+    content: @Composable () -> Unit,
+) {
     Surface(
         color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.25f),
         shape = RoundedCornerShape(8.dp),
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)),
         modifier = modifier,
     ) {
-        Box(
+        Row(
             modifier = Modifier.fillMaxWidth().heightIn(min = ROW_HEIGHT).padding(horizontal = 8.dp),
-            contentAlignment = Alignment.CenterStart,
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
         ) {
-            content()
+            Box(Modifier.weight(1f), contentAlignment = Alignment.CenterStart) { content() }
+            trailing?.invoke()
         }
     }
 }

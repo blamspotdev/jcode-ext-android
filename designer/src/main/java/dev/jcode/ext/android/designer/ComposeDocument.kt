@@ -28,6 +28,12 @@ internal class ComposeDocument private constructor(
 
     override fun reparse(text: String): DesignDocument = parse(text)
 
+    override fun suggestionsFor(element: DesignElement, property: String): List<String> =
+        SUGGESTIONS[property].orEmpty()
+
+    override fun withTag(element: DesignElement, tag: String): String =
+        text.replaceRange(element.range.first, element.range.first + element.tag.length, tag)
+
     override fun propertiesFor(element: DesignElement): List<String> {
         val known = PROPERTIES[element.tag].orEmpty()
         // Whatever is already written wins a place, so an argument the designer has never heard of
@@ -189,6 +195,38 @@ internal class ComposeDocument private constructor(
             "HorizontalDivider" to listOf("thickness", "color"),
             "LazyColumn" to listOf("verticalArrangement", "contentPadding"),
             "LazyRow" to listOf("horizontalArrangement", "contentPadding"),
+        )
+
+        private val SPACING = listOf("Arrangement.spacedBy(4.dp)", "Arrangement.spacedBy(8.dp)", "Arrangement.spacedBy(16.dp)")
+
+        private val SUGGESTIONS = mapOf(
+            "verticalArrangement" to listOf(
+                "Arrangement.Top", "Arrangement.Center", "Arrangement.Bottom",
+                "Arrangement.SpaceBetween", "Arrangement.SpaceAround", "Arrangement.SpaceEvenly",
+            ) + SPACING,
+            "horizontalArrangement" to listOf(
+                "Arrangement.Start", "Arrangement.Center", "Arrangement.End",
+                "Arrangement.SpaceBetween", "Arrangement.SpaceAround", "Arrangement.SpaceEvenly",
+            ) + SPACING,
+            "horizontalAlignment" to listOf("Alignment.Start", "Alignment.CenterHorizontally", "Alignment.End"),
+            "verticalAlignment" to listOf("Alignment.Top", "Alignment.CenterVertically", "Alignment.Bottom"),
+            "contentAlignment" to listOf(
+                "Alignment.TopStart", "Alignment.TopCenter", "Alignment.TopEnd",
+                "Alignment.CenterStart", "Alignment.Center", "Alignment.CenterEnd",
+                "Alignment.BottomStart", "Alignment.BottomCenter", "Alignment.BottomEnd",
+            ),
+            "fontWeight" to listOf(
+                "FontWeight.Light", "FontWeight.Normal", "FontWeight.Medium",
+                "FontWeight.SemiBold", "FontWeight.Bold", "FontWeight.ExtraBold",
+            ),
+            "textAlign" to listOf("TextAlign.Start", "TextAlign.Center", "TextAlign.End", "TextAlign.Justify"),
+            "fontSize" to listOf("12.sp", "14.sp", "16.sp", "20.sp", "24.sp", "32.sp"),
+            "maxLines" to listOf("1", "2", "3"),
+            "color" to listOf(
+                "MaterialTheme.colorScheme.primary", "MaterialTheme.colorScheme.onSurface",
+                "MaterialTheme.colorScheme.onSurfaceVariant", "MaterialTheme.colorScheme.error",
+                "Color.Black", "Color.White", "Color.Gray",
+            ),
         )
 
         /**

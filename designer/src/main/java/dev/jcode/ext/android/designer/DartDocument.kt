@@ -22,6 +22,12 @@ internal class DartDocument private constructor(
 
     override fun reparse(text: String): DesignDocument = parse(text)
 
+    override fun suggestionsFor(element: DesignElement, property: String): List<String> =
+        SUGGESTIONS[property].orEmpty()
+
+    override fun withTag(element: DesignElement, tag: String): String =
+        text.replaceRange(element.range.first, element.range.first + element.tag.length, tag)
+
     override fun propertiesFor(element: DesignElement): List<String> {
         val known = PROPERTIES[element.tag].orEmpty()
         val present = element.attributes.map { it.name }
@@ -151,6 +157,34 @@ internal class DartDocument private constructor(
         val MULTI_CHILD = setOf(
             "Column", "Row", "Stack", "Wrap", "ListView", "GridView", "Flex", "IndexedStack",
             "CustomMultiChildLayout", "Table",
+        )
+
+        private val SUGGESTIONS = mapOf(
+            "mainAxisAlignment" to listOf(
+                "MainAxisAlignment.start", "MainAxisAlignment.center", "MainAxisAlignment.end",
+                "MainAxisAlignment.spaceBetween", "MainAxisAlignment.spaceAround",
+                "MainAxisAlignment.spaceEvenly",
+            ),
+            "crossAxisAlignment" to listOf(
+                "CrossAxisAlignment.start", "CrossAxisAlignment.center", "CrossAxisAlignment.end",
+                "CrossAxisAlignment.stretch", "CrossAxisAlignment.baseline",
+            ),
+            "mainAxisSize" to listOf("MainAxisSize.min", "MainAxisSize.max"),
+            "textAlign" to listOf(
+                "TextAlign.start", "TextAlign.center", "TextAlign.end", "TextAlign.justify",
+            ),
+            "overflow" to listOf(
+                "TextOverflow.clip", "TextOverflow.fade", "TextOverflow.ellipsis", "TextOverflow.visible",
+            ),
+            "maxLines" to listOf("1", "2", "3"),
+            "padding" to listOf(
+                "EdgeInsets.all(8)", "EdgeInsets.all(16)",
+                "EdgeInsets.symmetric(horizontal: 16)", "EdgeInsets.symmetric(vertical: 8)",
+            ),
+            "alignment" to listOf(
+                "Alignment.topLeft", "Alignment.center", "Alignment.bottomRight",
+                "Alignment.centerLeft", "Alignment.centerRight",
+            ),
         )
 
         private val PROPERTIES = mapOf(

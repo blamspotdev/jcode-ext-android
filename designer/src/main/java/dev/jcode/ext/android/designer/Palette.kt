@@ -32,7 +32,17 @@ internal data class PaletteItem(
     val keywords: String = "",
     /** The language this belongs to. A palette only ever offers the open file's own format. */
     val format: DesignFormat = DesignFormat.AndroidXml,
-)
+) {
+    /**
+     * The element name this snippet creates.
+     *
+     * Read off the snippet rather than stored beside it, because the two could then disagree — and
+     * the label is often not the name at all: "Heading" is a `Text`, "LinearLayout (vertical)" is a
+     * `LinearLayout`.
+     */
+    val tag: String get() = xml.trimStart().removePrefix("<")
+        .takeWhile { it.isLetterOrDigit() || it == '.' || it == '_' }
+}
 
 internal object Palette {
 
@@ -353,6 +363,10 @@ internal object Palette {
             listOf("Image"), keywords = "picture photo",
         ),
     )
+
+    /** Every widget name [format] offers, for the picker that changes what an element is. */
+    fun tags(format: DesignFormat): List<String> =
+        items.filter { it.format == format }.map { it.tag }.distinct().sorted()
 
     /** Every category that has an entry in [format], in display order. */
     fun categories(format: DesignFormat): List<String> =

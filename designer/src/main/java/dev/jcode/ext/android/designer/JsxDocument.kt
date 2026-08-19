@@ -28,6 +28,21 @@ internal class JsxDocument private constructor(
         return (known + present).distinct()
     }
 
+    override fun suggestionsFor(element: DesignElement, property: String): List<String> =
+        SUGGESTIONS[property].orEmpty()
+
+    override fun withTag(element: DesignElement, tag: String): String {
+        val open = element.range.first + 1
+        var result = text
+        if (!element.selfClosing) {
+            val close = text.lastIndexOf("</", element.range.last)
+            if (close > open) {
+                result = result.replaceRange(close + 2, close + 2 + element.tag.length, tag)
+            }
+        }
+        return result.replaceRange(open, open + element.tag.length, tag)
+    }
+
     override fun withAttribute(element: DesignElement, name: String, value: String): String {
         val existing = element.attributes.firstOrNull { it.name == name }
         if (existing != null) {
@@ -140,6 +155,13 @@ internal class JsxDocument private constructor(
         const val TEXT = "text"
 
         fun parse(text: String): JsxDocument = JsxDocument(text, JsxParser(text).parseRoot())
+
+        private val SUGGESTIONS = mapOf(
+            "resizeMode" to listOf("\"cover\"", "\"contain\"", "\"stretch\"", "\"center\"", "\"repeat\""),
+            "numberOfLines" to listOf("{1}", "{2}", "{3}"),
+            "horizontal" to listOf("{true}", "{false}"),
+            "keyboardType" to listOf("\"default\"", "\"numeric\"", "\"email-address\"", "\"phone-pad\""),
+        )
 
         private val PROPERTIES = mapOf(
             "Text" to listOf(TEXT, "style", "numberOfLines"),
