@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -19,7 +20,9 @@ import androidx.compose.material.icons.rounded.FitScreen
 import androidx.compose.material.icons.rounded.GridOff
 import androidx.compose.material.icons.rounded.GridOn
 import androidx.compose.material.icons.rounded.LightMode
+import androidx.compose.material.icons.rounded.Redo
 import androidx.compose.material.icons.rounded.PhoneAndroid
+import androidx.compose.material.icons.rounded.Undo
 import androidx.compose.material.icons.rounded.Remove
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -33,6 +36,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.text.font.FontWeight
@@ -61,6 +65,10 @@ internal fun DesignerToolbar(
     /** True when the canvas is a likeness rather than a rendering, and must say so. */
     approximate: Boolean,
     status: String,
+    canUndo: Boolean,
+    onUndo: () -> Unit,
+    canRedo: Boolean,
+    onRedo: () -> Unit,
 ) {
     var deviceMenu by remember { mutableStateOf(false) }
 
@@ -118,18 +126,58 @@ internal fun DesignerToolbar(
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.weight(1f).padding(start = 6.dp),
         )
+
+        // At the end, past the status, because these act on the file rather than on the view: every
+        // other control in this bar changes how the layout is *shown*, and these two change it.
+        ToolIcon(Icons.Rounded.Undo, "Undo", enabled = canUndo, onClick = onUndo)
+        ToolIcon(Icons.Rounded.Redo, "Redo", enabled = canRedo, onClick = onRedo)
     }
 }
 
 @Composable
-private fun ToolIcon(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, onClick: () -> Unit) {
-    IconButton(onClick = onClick, modifier = Modifier.size(34.dp)) {
+private fun ToolIcon(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    label: String,
+    enabled: Boolean = true,
+    onClick: () -> Unit,
+) {
+    IconButton(onClick = onClick, enabled = enabled, modifier = Modifier.size(34.dp)) {
         Icon(
             imageVector = icon,
             contentDescription = label,
             modifier = Modifier.size(18.dp),
-            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                .copy(alpha = if (enabled) 1f else 0.35f),
         )
+    }
+}
+
+/**
+ * One panel tab, drawn the way JCode's right drawer draws its own.
+ *
+ * Flat and butted against its neighbours rather than a Material `TabRow` with an underline: this
+ * panel sits in the same window as that drawer, often a few hundred pixels from it, and two ways of
+ * spelling "pick one of these" that close together read as two different kinds of control.
+ */
+@Composable
+internal fun PanelTabItem(
+    label: String,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    selected: Boolean,
+    onClick: () -> Unit,
+) {
+    val tint = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+    Row(
+        modifier = Modifier
+            .clickable(onClick = onClick)
+            .background(if (selected) MaterialTheme.colorScheme.surfaceVariant else Color.Transparent)
+            .fillMaxHeight()
+            .padding(horizontal = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(5.dp),
+    ) {
+        Icon(imageVector = icon, contentDescription = null, modifier = Modifier.size(16.dp), tint = tint)
+        Text(text = label, style = MaterialTheme.typography.labelMedium, color = tint)
     }
 }
 

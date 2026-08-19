@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -24,8 +25,10 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Divider
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Tab
-import androidx.compose.material3.TabRow
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.AccountTree
+import androidx.compose.material.icons.rounded.Tune
+import androidx.compose.material.icons.rounded.Widgets
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -40,6 +43,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.layout.LayoutCoordinates
@@ -65,7 +69,11 @@ internal val DEVICES = listOf(
 )
 
 /** Which side panel the narrow layout is showing. */
-private enum class PanelTab(val label: String) { Layers("Layers"), Palette("Palette"), Properties("Properties") }
+private enum class PanelTab(val label: String, val icon: ImageVector) {
+    Layers("Layers", Icons.Rounded.AccountTree),
+    Palette("Palette", Icons.Rounded.Widgets),
+    Properties("Properties", Icons.Rounded.Tune),
+}
 
 @Composable
 internal fun DesignerScreen(
@@ -92,6 +100,14 @@ internal fun DesignerScreen(
     var zoom by remember { mutableStateOf<Float?>(null) }
     var chrome by remember { mutableStateOf(ScreenChrome()) }
     var tab by remember { mutableStateOf(PanelTab.Palette) }
+    // Whole-file snapshots — see EditHistory for why that is the cheap option here, not the
+    // expensive one. Keyed to the file so opening another one does not inherit its undo stack.
+    val history = remember(file) { EditHistory(source) }
+    LaunchedEffect(source) { history.adopt(source) }
+    val edit: (String) -> Unit = { next ->
+        history.record(next)
+        onSource(next)
+    }
     var drag by remember { mutableStateOf<DragState?>(null) }
     var hover by remember { mutableStateOf<DropTarget?>(null) }
     var rootCoords by remember { mutableStateOf<LayoutCoordinates?>(null) }
@@ -122,7 +138,7 @@ internal fun DesignerScreen(
     fun insert(item: PaletteItem, into: DesignElement, at: Int = -1) {
         val ready = document.reparse(document.withPrerequisites(item))
         val target = ready.root?.let { elementAt(it, elementPath(root, into).orEmpty()) } ?: return
-        onSource(if (at < 0) ready.withChild(target, item.xml) else ready.withChildAt(target, at, item.xml))
+        edit(if (at < 0) ready.withChild(target, item.xml) else ready.withChildAt(target, at, item.xml))
         tab = PanelTab.Properties
     }
 
@@ -136,7 +152,7 @@ internal fun DesignerScreen(
         val removed = document.reparse(document.without(moving))
         val containerPath = pathAfterRemoval(to.containerPath, from) ?: return
         val container = removed.root?.let { elementAt(it, containerPath) } ?: return
-        onSource(removed.withChildAt(container, to.index, xml))
+        edit(removed.withChildAt(container, to.index, xml))
         selectedPath = null
     }
 
@@ -163,6 +179,12 @@ internal fun DesignerScreen(
             onBounds = { bounds = it },
             zoom = zoom,
             onZoom = { zoom = it },
+            canUndo = history.canUndo,
+            // Straight to onSource: the history already knows where it moved to, and recording this
+            // would push the state being left onto the stack it was just taken off.
+            onUndo = { history.undo()?.let(onSource) },
+            canRedo = history.canRedo,
+            onRedo = { history.redo()?.let(onSource) },
             // While a drag is in flight the status line says where it would land. A drop that
             // quietly does nothing is the worst outcome here, and this is what tells the user in
             // advance that they are not over a container.
@@ -247,8 +269,8 @@ internal fun DesignerScreen(
                             PropertiesPanel(
                                 document = document,
                                 element = selected,
-                                onSource = onSource,
-                                onDelete = { selectedPath = null; onSource(document.without(selected)) },
+                                onSource = edit,
+                                onDelete = { selectedPath = null; edit(document.without(selected)) },
                                 onInsertChild = { insert(it, selected) },
                                 onDragStart = { payload, at -> drag = DragState(payload, at) },
                                 onDragMove = { at -> drag = drag?.copy(position = at) },
@@ -261,15 +283,16 @@ internal fun DesignerScreen(
                 Column(Modifier.fillMaxSize()) {
                     canvas(Modifier.fillMaxWidth().weight(1f))
                     Divider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
-                    TabRow(selectedTabIndex = tab.ordinal, modifier = Modifier.fillMaxWidth()) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().height(38.dp)
+                            .horizontalScroll(rememberScrollState()),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
                         PanelTab.entries.forEach { t ->
-                            Tab(
-                                selected = tab == t,
-                                onClick = { tab = t },
-                                text = { Text(t.label, style = MaterialTheme.typography.labelSmall) },
-                            )
+                            PanelTabItem(t.label, t.icon, tab == t) { tab = t }
                         }
                     }
+                    Divider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
                     Box(Modifier.fillMaxWidth().height(230.dp)) {
                         when (tab) {
                             PanelTab.Layers -> LayerTree(
@@ -307,8 +330,8 @@ internal fun DesignerScreen(
                                     PropertiesPanel(
                                         document = document,
                                         element = selected,
-                                        onSource = onSource,
-                                        onDelete = { selectedPath = null; onSource(document.without(selected)) },
+                                        onSource = edit,
+                                        onDelete = { selectedPath = null; edit(document.without(selected)) },
                                         onInsertChild = { insert(it, selected) },
                                         onDragStart = { payload, at -> drag = DragState(payload, at) },
                                         onDragMove = { at -> drag = drag?.copy(position = at) },
