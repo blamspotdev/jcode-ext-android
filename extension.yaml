@@ -607,13 +607,17 @@ entry:
       - fileTypes: [xml]
         pathContains: res/layout
         opensInPreview: openLayoutsInDesigner
+        label: Show Designer
       # A composable cannot be told from any other Kotlin file by its path, so ask the file.
       - fileTypes: [kt]
         contains: "@Composable"
+        label: Show Designer
       # Flutter and React Native, drawn as an approximation and labelled as one: there is no Dart
       # or JS runtime in JCode's process, so the canvas shows structure rather than a guess at
       # pixels. Both are decided by content for the same reason Kotlin is.
       - fileTypes: [dart]
         contains: "Widget build("
+        label: Show Designer
       - fileTypes: [jsx, tsx]
         contains: "return"
+        label: Show Designer
