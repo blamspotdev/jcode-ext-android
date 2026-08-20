@@ -110,11 +110,22 @@ private fun LayoutCoordinates?.toRoot(local: Offset): Offset =
     if (this != null && isAttached) localToRoot(local) else local
 
 /**
- * Tap to select, long-press to drag — from one gesture owner.
+ * Every gesture the canvas answers to, from one owner.
  *
- * Written out rather than stacking a drag-after-long-press detector on top of a tap detector,
- * because the two would race for the same long press and whichever won would swallow the other.
- * One loop decides which gesture happened and there is nothing left to disagree about.
+ * Tap selects. Hold, then move, picks a widget up. Move without holding pans. Two fingers pinch and
+ * pan. Ctrl and a drag pans, for a mouse that has no second finger to say it with.
+ *
+ * Written out rather than stacking detectors, because a drag-after-long-press detector and a tap
+ * detector would race for the same long press and whichever won would swallow the other. One loop
+ * decides which of the five happened and there is nothing left to disagree about.
+ *
+ * It also settles a disagreement the loop cannot see. This composable sits inside JCode's shell,
+ * whose navigation drawer drags open on sideways movement anywhere in the content — so a pointer
+ * whose movement is left unconsumed while the loop is still working out what it is gets read as an
+ * open-swipe, and the drawer slides out over the canvas mid-gesture. The movement is therefore
+ * consumed from the first event that carries any, before the gesture has a name, which is the only
+ * point early enough to matter: once the drawer has taken the pointer, consuming it later just
+ * cancels the drawer half-open.
  */
 @Composable
 internal fun Modifier.canvasGestures(
@@ -151,6 +162,8 @@ internal fun Modifier.canvasGestures(
             var up: PointerInputChange? = null
             var longPressed = false
             var multitouch = false
+            var travel = Offset.Zero
+            var dragging = false
             try {
                 withTimeout(viewConfiguration.longPressTimeoutMillis) {
                     while (true) {
@@ -162,6 +175,18 @@ internal fun Modifier.canvasGestures(
                             break
                         }
                         val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                        if (change.positionChanged()) {
+                            travel += change.positionChange()
+                            // Consumed as it arrives, not once the gesture is understood. This
+                            // pointer went down on the canvas and the canvas is keeping it; left
+                            // unconsumed, the shell's navigation drawer reads the same sideways
+                            // movement as its own open-swipe and slides out over the design.
+                            change.consume()
+                        }
+                        if (travel.getDistance() > viewConfiguration.touchSlop) {
+                            dragging = true
+                            break
+                        }
                         if (!change.pressed) {
                             up = change
                             break
@@ -177,7 +202,20 @@ internal fun Modifier.canvasGestures(
                 return@awaitEachGesture
             }
 
+            // Moved before the hold deadline, so one finger pans — the same thing two fingers
+            // together and Ctrl-and-drag already do. Holding still is what picks a widget up, which
+            // is the ordinary bargain on a canvas: move at once and you move the view, hold first
+            // and you move the thing under you. The slop already travelled is handed over rather
+            // than dropped, or every pan would begin by throwing away its first few pixels.
+            if (dragging) {
+                pan(travel)
+                panUntilUp(down.id, pan)
+                return@awaitEachGesture
+            }
+
             if (!longPressed) {
+                // Only a pointer that never left slop is a tap. Without that test a swipe across
+                // the canvas selected whatever happened to be under the finger when it landed.
                 if (up != null) tap(down.position)
                 return@awaitEachGesture
             }
