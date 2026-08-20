@@ -68,6 +68,14 @@ internal fun DesignerToolbar(
     bounds: Boolean,
     onBounds: (Boolean) -> Unit,
     zoom: Float?,
+    /**
+     * The scale the canvas is *actually* drawing at.
+     *
+     * Not the same as [zoom], which is null while the canvas is fitting itself to the pane — and
+     * fitting a phone into a phone-sized pane lands around a third. Stepping from 1f in that state
+     * made "zoom out" jump from 30% to 85%: bigger, from the button with the minus on it.
+     */
+    effectiveZoom: Float,
     onZoom: (Float?) -> Unit,
     /** True when the canvas is a likeness rather than a rendering, and must say so. */
     approximate: Boolean,
@@ -104,7 +112,7 @@ internal fun DesignerToolbar(
             if (bounds) "Hide bounds" else "Show bounds",
         ) { onBounds(!bounds) }
 
-        ToolIcon(Icons.Rounded.Remove, "Zoom out") { onZoom(((zoom ?: 1f) - 0.15f).coerceAtLeast(0.1f)) }
+        ToolIcon(Icons.Rounded.Remove, "Zoom out") { onZoom((effectiveZoom / STEP).coerceAtLeast(0.1f)) }
         // The readout is the reset. A separate "fit to pane" icon beside it was a second control for
         // the one action, a few pixels apart.
         Text(
@@ -113,7 +121,7 @@ internal fun DesignerToolbar(
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.clickable { onZoom(null) }.padding(horizontal = 2.dp),
         )
-        ToolIcon(Icons.Rounded.Add, "Zoom in") { onZoom(((zoom ?: 1f) + 0.15f).coerceAtMost(3f)) }
+        ToolIcon(Icons.Rounded.Add, "Zoom in") { onZoom((effectiveZoom * STEP).coerceAtMost(3f)) }
 
         // A native page replaces the editor, and the toggle that opened it lives in the editor's own
         // context menu — so this is the only way back to the file as text.
@@ -146,6 +154,14 @@ internal fun DesignerToolbar(
         ToolIcon(Icons.Rounded.Redo, "Redo", enabled = canRedo, onClick = onRedo)
     }
 }
+
+/**
+ * One press of zoom, as a ratio rather than an amount.
+ *
+ * A fixed ±0.15 is half the picture at 30% and a rounding error at 300%. A ratio is the same
+ * gesture wherever you are.
+ */
+private const val STEP = 1.25f
 
 @Composable
 private fun ToolIcon(

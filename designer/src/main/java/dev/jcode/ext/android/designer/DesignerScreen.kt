@@ -34,6 +34,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
@@ -112,6 +113,8 @@ internal fun DesignerScreen(
     var drag by remember { mutableStateOf<DragState?>(null) }
     var hover by remember { mutableStateOf<DropTarget?>(null) }
     var rootCoords by remember { mutableStateOf<LayoutCoordinates?>(null) }
+    // Reported up by the canvas, which is the only thing that knows how big its pane turned out.
+    var effectiveZoom by remember { mutableFloatStateOf(1f) }
     // Both surfaces are keyed to the tree they describe: an edit reparses, and a box recorded
     // against the old elements would answer for a node that no longer exists.
     val canvasRef = remember { RendererRef() }
@@ -198,6 +201,7 @@ internal fun DesignerScreen(
             bounds = bounds,
             onBounds = { bounds = it },
             zoom = zoom,
+            effectiveZoom = effectiveZoom,
             onZoom = { zoom = it },
             onShowSource = onShowSource,
             canUndo = history.canUndo,
@@ -246,6 +250,7 @@ internal fun DesignerScreen(
                     },
                     onDragTo = { at -> drag = drag?.copy(position = at) },
                     onDrop = { dropped -> applyDrop(if (dropped) hover else null) },
+                    onEffectiveZoom = { effectiveZoom = it },
                 )
             }
         }
@@ -426,6 +431,7 @@ private fun DesignCanvas(
     onPickUp: (path: String, label: String, at: Offset) -> Unit,
     onDragTo: (Offset) -> Unit,
     onDrop: (dropped: Boolean) -> Unit,
+    onEffectiveZoom: (Float) -> Unit,
 ) {
     val outline = MaterialTheme.colorScheme.primary
     val screenDensity = LocalDensity.current.density
@@ -437,6 +443,9 @@ private fun DesignCanvas(
     ) {
         val fit = minOf(maxWidth / device.widthDp.dp, maxHeight / device.heightDp.dp, 1f)
         val effective = (zoom ?: fit).coerceIn(0.1f, 3f)
+        // The toolbar steps from this rather than from the user's override, which is null whenever
+        // the canvas is fitting itself and would otherwise be read as 100%.
+        LaunchedEffect(effective) { onEffectiveZoom(effective) }
         val barColour = if (dark) Color(0xFF1E1E1E) else Color(0xFFE8E8E8)
 
         Column(
