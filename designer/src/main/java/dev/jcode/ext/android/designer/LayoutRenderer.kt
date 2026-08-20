@@ -1,6 +1,7 @@
 package dev.jcode.ext.android.designer
 
 import android.content.Context
+import android.content.res.Configuration
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.DashPathEffect
@@ -10,6 +11,8 @@ import android.text.TextUtils
 import android.util.TypedValue
 import android.view.Gravity
 import android.view.View
+import android.util.DisplayMetrics
+import android.view.ContextThemeWrapper
 import androidx.compose.ui.geometry.Rect
 import android.view.ViewGroup
 import android.widget.Button
@@ -42,8 +45,10 @@ import androidx.constraintlayout.widget.ConstraintSet
  *   the right bounds. A box saying `MaterialCardView` is honest; a rounded rectangle pretending to
  *   be one is not, because the user cannot tell which parts of what they see are real.
  */
+import kotlin.math.roundToInt
+
 internal class LayoutRenderer(
-    private val context: Context,
+    base: Context,
     private val resources: ResourceTable,
     /** Which surface the canvas is showing. Decides the default text colour, nothing else. */
     private val dark: Boolean = false,
@@ -56,8 +61,42 @@ internal class LayoutRenderer(
      * this screen smaller" actually means — every dp, sp and margin shrinks together, the hit test
      * needs no inverse transform, and there is nothing to clip.
      */
-    private val density: Float,
+    requestedDensity: Float,
 ) : CanvasBounds {
+
+    /**
+     * The zoom, rounded to a density Android can actually report.
+     *
+     * `densityDpi` is an integer, and the context below is the authority on what a dp is worth once
+     * it exists — so the requested scale is quantised first and everything else derives from the
+     * result. Otherwise explicit dimensions (computed here) and theme dimensions (computed by the
+     * framework) would disagree by a fraction of a percent, which is invisible until it is not.
+     */
+    private val densityDpi: Int =
+        (DisplayMetrics.DENSITY_DEFAULT * requestedDensity).roundToInt().coerceAtLeast(1)
+
+    /** Pixels per dp for this render — the screen's density scaled by the canvas zoom. */
+    private val density: Float = densityDpi / DisplayMetrics.DENSITY_DEFAULT.toFloat()
+
+    /**
+     * A context whose **resources** report the zoomed density.
+     *
+     * Scaling only the dimensions this class sets by hand is not zooming; it is shrinking half the
+     * picture. A `Button` takes its text size, padding and minimum height from the theme, which the
+     * framework resolves against the context's own `DisplayMetrics` — so at 40% the layout's own
+     * `20sp` text shrank while every button label stayed the size it is on a real screen, which is
+     * the wrong way round from what a phone at arm's length looks like.
+     *
+     * Handing the views a context that says a dp is worth less makes every dimension shrink
+     * together, whoever resolved it. The theme is copied across because a configuration context
+     * starts from the platform default, and losing JCode's Material theme would restyle every
+     * widget on the canvas.
+     */
+    private val context: Context = run {
+        val config = Configuration(base.resources.configuration).apply { densityDpi = this@LayoutRenderer.densityDpi }
+        ContextThemeWrapper(base.createConfigurationContext(config), 0)
+            .also { it.theme.setTo(base.theme) }
+    }
 
     /**
      * What a widget with no explicit colour is drawn in.
