@@ -53,11 +53,11 @@ import androidx.compose.ui.unit.dp
 /**
  * The designer's toolbar.
  *
- * Icons rather than words, and only here. These are a fixed set of modes hit repeatedly, so a glyph
- * is faster to find than a label and costs a third of the width — which is the whole point on a
- * screen that also has to hold a canvas and two panels. The palette stays text for the opposite
- * reason: it is an open-ended list of widget *names*, and a wall of near-identical box glyphs would
- * cost recognition rather than gain it.
+ * Icons and no words. These are a fixed set of modes hit repeatedly, so a glyph is faster to find
+ * than a label and costs a third of the width — which is the whole point on a screen that also has
+ * to hold a canvas and two panels. The palette carries icons *and* labels for a different reason:
+ * there the glyph is what tells a beginner what the widget does, and the name is the part that means
+ * nothing yet. See [paletteIcon].
  */
 @Composable
 internal fun DesignerToolbar(
@@ -382,8 +382,14 @@ internal fun PalettePanel(
                         )
                         .padding(horizontal = 4.dp, vertical = 6.dp),
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
+                    Icon(
+                        imageVector = paletteIcon(item),
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(18.dp),
+                    )
                     Text(
                         text = item.label,
                         style = MaterialTheme.typography.bodySmall,
