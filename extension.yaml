@@ -578,7 +578,50 @@ images:
   icon: media/icon.png
   samples: []
   walkthrough: []
+settings:
+  - key: openLayoutsInDesigner
+    label: Open layouts in the designer
+    type: boolean
+    default: "true"
+    description: >-
+      Opening a file from res/layout shows the visual designer instead of the XML. Turn this off to
+      open layouts as text; the < > and Preview toggles still switch between the two either way.
+
 entry:
   manifest: extension.yaml
   ui: null
   libs: []
+  # The layout designer. Loaded on demand, in JCode's own process, and only when a file it claims is
+  # opened in preview — see designer/ for what it is and NativeExtensionLoader for how it gets in.
+  native:
+    apk: lib/designer.apk
+    class: dev.jcode.ext.android.designer.DesignerExtension
+    abi: 2
+    claims:
+      # A layout is decided by where it lives: AndroidManifest.xml is also XML and is not a layout.
+      #
+      # `opensInPreview` names the setting that governs it: a layout file *is* a layout before it is
+      # XML, so opening it as text and making the user find a menu is the wrong way round. Only this
+      # claim declares it — a Kotlin file is not primarily a composable, and a Dart or JSX file is
+      # mostly not UI at all.
+      - fileTypes: [xml]
+        pathContains: res/layout
+        opensInPreview: openLayoutsInDesigner
+        label: Show Designer
+        icon: image
+      # A composable cannot be told from any other Kotlin file by its path, so ask the file.
+      - fileTypes: [kt]
+        contains: "@Composable"
+        label: Show Designer
+        icon: image
+      # Flutter and React Native, drawn as an approximation and labelled as one: there is no Dart
+      # or JS runtime in JCode's process, so the canvas shows structure rather than a guess at
+      # pixels. Both are decided by content for the same reason Kotlin is.
+      - fileTypes: [dart]
+        contains: "Widget build("
+        label: Show Designer
+        icon: image
+      - fileTypes: [jsx, tsx]
+        contains: "return"
+        label: Show Designer
+        icon: image
