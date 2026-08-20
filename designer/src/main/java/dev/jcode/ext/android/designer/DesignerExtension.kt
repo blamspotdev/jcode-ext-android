@@ -55,6 +55,7 @@ class DesignerExtension : JCodeNativeExtension {
             source = source,
             file = File(path),
             projectDir = projectDir,
+            onShowSource = host::showSource,
             onSource = { updated ->
                 if (updated != source) {
                     source = updated

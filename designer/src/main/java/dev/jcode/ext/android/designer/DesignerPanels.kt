@@ -16,8 +16,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.Code
 import androidx.compose.material.icons.rounded.DarkMode
-import androidx.compose.material.icons.rounded.FitScreen
 import androidx.compose.material.icons.rounded.GridOff
 import androidx.compose.material.icons.rounded.GridOn
 import androidx.compose.material.icons.rounded.LightMode
@@ -72,6 +72,7 @@ internal fun DesignerToolbar(
     /** True when the canvas is a likeness rather than a rendering, and must say so. */
     approximate: Boolean,
     status: String,
+    onShowSource: () -> Unit,
     canUndo: Boolean,
     onUndo: () -> Unit,
     canRedo: Boolean,
@@ -104,6 +105,8 @@ internal fun DesignerToolbar(
         ) { onBounds(!bounds) }
 
         ToolIcon(Icons.Rounded.Remove, "Zoom out") { onZoom(((zoom ?: 1f) - 0.15f).coerceAtLeast(0.1f)) }
+        // The readout is the reset. A separate "fit to pane" icon beside it was a second control for
+        // the one action, a few pixels apart.
         Text(
             text = zoom?.let { "${(it * 100).toInt()}%" } ?: "Fit",
             style = MaterialTheme.typography.labelSmall,
@@ -111,7 +114,10 @@ internal fun DesignerToolbar(
             modifier = Modifier.clickable { onZoom(null) }.padding(horizontal = 2.dp),
         )
         ToolIcon(Icons.Rounded.Add, "Zoom in") { onZoom(((zoom ?: 1f) + 0.15f).coerceAtMost(3f)) }
-        ToolIcon(Icons.Rounded.FitScreen, "Fit to pane") { onZoom(null) }
+
+        // A native page replaces the editor, and the toggle that opened it lives in the editor's own
+        // context menu — so this is the only way back to the file as text.
+        ToolIcon(Icons.Rounded.Code, "Edit as code", onClick = onShowSource)
 
         if (approximate) {
             Text(

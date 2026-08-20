@@ -55,7 +55,7 @@ kotlin {
 dependencies {
     // JCode's, resolved from JCode at runtime. Versions must match what JCode ships — see the
     // extension's README for the pinned set. compileOnly is load-bearing, not tidiness.
-    compileOnly(files("libs/jcode-ext-api-abi1.jar"))
+    compileOnly(files("libs/jcode-ext-api-abi2.jar"))
     compileOnly(platform("androidx.compose:compose-bom:2025.01.00"))
     compileOnly("androidx.compose.ui:ui")
     compileOnly("androidx.compose.foundation:foundation")
@@ -80,7 +80,7 @@ dependencies {
     // refuses to run without the runtime in front of it — so the same set is repeated here. These
     // are test-only and never enter the APK, so the ABI rule above is not weakened by them.
     testImplementation(kotlin("test"))
-    testImplementation(files("libs/jcode-ext-api-abi1.jar"))
+    testImplementation(files("libs/jcode-ext-api-abi2.jar"))
     testImplementation(platform("androidx.compose:compose-bom:2025.01.00"))
     testImplementation("androidx.compose.runtime:runtime")
     testImplementation("androidx.compose.ui:ui")

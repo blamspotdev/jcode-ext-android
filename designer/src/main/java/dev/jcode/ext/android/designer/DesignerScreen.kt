@@ -81,6 +81,7 @@ internal fun DesignerScreen(
     file: File,
     projectDir: File?,
     onSource: (String) -> Unit,
+    onShowSource: () -> Unit,
 ) {
     val format = remember(file, source) { DesignFormat.of(file, source) }
     val document = remember(source, format) {
@@ -198,6 +199,7 @@ internal fun DesignerScreen(
             onBounds = { bounds = it },
             zoom = zoom,
             onZoom = { zoom = it },
+            onShowSource = onShowSource,
             canUndo = history.canUndo,
             // Straight to onSource: the history already knows where it moved to, and recording this
             // would push the state being left onto the stack it was just taken off.

@@ -587,7 +587,7 @@ entry:
   native:
     apk: lib/designer.apk
     class: dev.jcode.ext.android.designer.DesignerExtension
-    abi: 1
+    abi: 2
     claims:
       # A layout is decided by where it lives: AndroidManifest.xml is also XML and is not a layout.
       - fileTypes: [xml]
