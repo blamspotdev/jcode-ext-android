@@ -2,18 +2,25 @@ package dev.jcode.ext.android.designer
 
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.AddCircle
+import androidx.compose.material.icons.rounded.CenterFocusStrong
 import androidx.compose.material.icons.rounded.CheckBox
 import androidx.compose.material.icons.rounded.CreditCard
+import androidx.compose.material.icons.rounded.CropFree
 import androidx.compose.material.icons.rounded.CropSquare
 import androidx.compose.material.icons.rounded.Dashboard
+import androidx.compose.material.icons.rounded.Dock
+import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.HorizontalRule
+import androidx.compose.material.icons.rounded.HourglassEmpty
 import androidx.compose.material.icons.rounded.Image
 import androidx.compose.material.icons.rounded.Label
 import androidx.compose.material.icons.rounded.Layers
 import androidx.compose.material.icons.rounded.LinearScale
 import androidx.compose.material.icons.rounded.List
-import androidx.compose.material.icons.rounded.Menu
+import androidx.compose.material.icons.rounded.OpenInFull
+import androidx.compose.material.icons.rounded.Padding
 import androidx.compose.material.icons.rounded.Password
+import androidx.compose.material.icons.rounded.Percent
 import androidx.compose.material.icons.rounded.RadioButtonChecked
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.SmartButton
@@ -24,7 +31,6 @@ import androidx.compose.material.icons.rounded.TextFields
 import androidx.compose.material.icons.rounded.Title
 import androidx.compose.material.icons.rounded.ToggleOn
 import androidx.compose.material.icons.rounded.TouchApp
-import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.material.icons.rounded.ViewAgenda
 import androidx.compose.material.icons.rounded.ViewCarousel
 import androidx.compose.material.icons.rounded.ViewColumn
@@ -47,35 +53,59 @@ import androidx.compose.ui.graphics.vector.ImageVector
  * where two widgets do the same thing to their children they are allowed to share a glyph rather
  * than being told apart by a detail nobody can see at 18dp.
  *
- * Matched on the label first: "LinearLayout (vertical)" and "LinearLayout (horizontal)" are one tag
- * and two very different pictures, and the direction is the whole reason a beginner picks one.
+ * That licence has a boundary, and it is the one this file got wrong first time round: it covers
+ * widgets that do the *same* job, not widgets that merely sit near each other in a list. A
+ * `TextView` displays text and an `EditText` accepts it — the single distinction in the Text
+ * category a beginner most needs — so they do not share a picture. Nor does a spinner share one
+ * with pull-to-refresh, nor a progress bar with a slider.
+ *
+ * Two lookups, in order:
+ *
+ * **By label**, for entries where the tag alone is ambiguous: "LinearLayout (vertical)" and
+ * "LinearLayout (horizontal)" are one tag and two very different pictures, and the direction is the
+ * whole reason a beginner picks one.
+ *
+ * **By simple name**, so `com.google.android.material.button.MaterialButton` finds `MaterialButton`.
+ * The map used to be keyed on whatever string the entry happened to produce, so a widget declared
+ * by its fully-qualified name fell through to the generic glyph and said nothing at all —
+ * `MaterialButton` and `FloatingActionButton` both did. Keying on the last segment cannot express
+ * that mistake. `PaletteIconsTest` holds the invariant from both ends: every entry resolves to
+ * something, and every key is reachable.
  */
 internal fun paletteIcon(item: PaletteItem): ImageVector = BY_LABEL[item.label]
-    ?: BY_TAG[item.tag]
+    ?: BY_TAG[item.tag.substringAfterLast('.')]
     ?: Icons.Rounded.Widgets
 
 /** Entries whose *label* carries the meaning, because the tag alone is ambiguous. */
-private val BY_LABEL: Map<String, ImageVector> = mapOf(
+internal val BY_LABEL: Map<String, ImageVector> = mapOf(
     "Heading" to Icons.Rounded.Title,
     "Password field" to Icons.Rounded.Password,
     "LinearLayout (vertical)" to Icons.Rounded.ViewAgenda,
     "LinearLayout (horizontal)" to Icons.Rounded.ViewColumn,
-    "ProgressBar (bar)" to Icons.Rounded.LinearScale,
+    // A determinate bar reports how far along it is; the indeterminate one cannot.
+    "ProgressBar (bar)" to Icons.Rounded.Percent,
     "Spacer" to Icons.Rounded.SpaceBar,
     "Divider" to Icons.Rounded.HorizontalRule,
 )
 
-/** Everything else, by the element it creates. Shared glyphs are deliberate — see the note above. */
-private val BY_TAG: Map<String, ImageVector> = mapOf(
-    // Text
+/**
+ * Everything else, by the simple name of the element it creates.
+ *
+ * Shared glyphs are deliberate where the widgets share a job — every kind of button is a button.
+ */
+internal val BY_TAG: Map<String, ImageVector> = mapOf(
+    // Text you read.
     "TextView" to Icons.Rounded.TextFields,
     "Text" to Icons.Rounded.TextFields,
-    "EditText" to Icons.Rounded.TextFields,
-    "TextField" to Icons.Rounded.TextFields,
-    "OutlinedTextField" to Icons.Rounded.TextFields,
-    "TextInput" to Icons.Rounded.TextFields,
 
-    // Things you press
+    // Text you write. Separate from the above on purpose: a pencil says you may type here.
+    "EditText" to Icons.Rounded.Edit,
+    "TextField" to Icons.Rounded.Edit,
+    "OutlinedTextField" to Icons.Rounded.Edit,
+    "TextInput" to Icons.Rounded.Edit,
+    "TextInputLayout" to Icons.Rounded.Edit,
+
+    // Things you press.
     "Button" to Icons.Rounded.SmartButton,
     "MaterialButton" to Icons.Rounded.SmartButton,
     "ElevatedButton" to Icons.Rounded.SmartButton,
@@ -83,54 +113,47 @@ private val BY_TAG: Map<String, ImageVector> = mapOf(
     "TextButton" to Icons.Rounded.SmartButton,
     "ImageButton" to Icons.Rounded.TouchApp,
     "Pressable" to Icons.Rounded.TouchApp,
-    "TouchableOpacity" to Icons.Rounded.TouchApp,
     "CheckBox" to Icons.Rounded.CheckBox,
     "RadioButton" to Icons.Rounded.RadioButtonChecked,
     "Switch" to Icons.Rounded.ToggleOn,
     "FloatingActionButton" to Icons.Rounded.AddCircle,
 
-    // Things that arrange other things
+    // Things that arrange other things.
     "Column" to Icons.Rounded.ViewAgenda,
     "Row" to Icons.Rounded.ViewColumn,
     "Box" to Icons.Rounded.Layers,
     "FrameLayout" to Icons.Rounded.Layers,
-    "Stack" to Icons.Rounded.Layers,
     "Container" to Icons.Rounded.CropSquare,
-    "Padding" to Icons.Rounded.CropSquare,
-    "Center" to Icons.Rounded.CropSquare,
-    "Expanded" to Icons.Rounded.CropSquare,
-    "View" to Icons.Rounded.ViewAgenda,
-    "SafeAreaView" to Icons.Rounded.ViewAgenda,
+    "View" to Icons.Rounded.CropSquare,
     "Surface" to Icons.Rounded.CropSquare,
-    "androidx.constraintlayout.widget.ConstraintLayout" to Icons.Rounded.Dashboard,
-    "androidx.coordinatorlayout.widget.CoordinatorLayout" to Icons.Rounded.Dashboard,
-    "Scaffold" to Icons.Rounded.WebAsset,
+    "Padding" to Icons.Rounded.Padding,
+    "Center" to Icons.Rounded.CenterFocusStrong,
+    "Expanded" to Icons.Rounded.OpenInFull,
+    "SafeAreaView" to Icons.Rounded.CropFree,
+    "ConstraintLayout" to Icons.Rounded.Dashboard,
+    "CoordinatorLayout" to Icons.Rounded.Dashboard,
     "SizedBox" to Icons.Rounded.SpaceBar,
-    "Space" to Icons.Rounded.SpaceBar,
 
-    // Things that scroll
+    // Things that scroll.
     "ScrollView" to Icons.Rounded.SwapVert,
-    "SingleChildScrollView" to Icons.Rounded.SwapVert,
     "LazyColumn" to Icons.Rounded.List,
     "ListView" to Icons.Rounded.List,
     "FlatList" to Icons.Rounded.List,
-    "androidx.recyclerview.widget.RecyclerView" to Icons.Rounded.List,
-    "LazyRow" to Icons.Rounded.ViewCarousel,
-    "androidx.viewpager2.widget.ViewPager2" to Icons.Rounded.ViewCarousel,
-    "androidx.swiperefreshlayout.widget.SwipeRefreshLayout" to Icons.Rounded.Refresh,
+    "RecyclerView" to Icons.Rounded.List,
+    "ViewPager2" to Icons.Rounded.ViewCarousel,
+    "SwipeRefreshLayout" to Icons.Rounded.Refresh,
 
-    // Everything else
+    // Everything else.
     "ImageView" to Icons.Rounded.Image,
     "Image" to Icons.Rounded.Image,
-    "ProgressBar" to Icons.Rounded.Refresh,
-    "SeekBar" to Icons.Rounded.Tune,
+    // Waiting, not reloading — Refresh belongs to the widget above that really does refresh.
+    "ProgressBar" to Icons.Rounded.HourglassEmpty,
+    "SeekBar" to Icons.Rounded.LinearScale,
     "Icon" to Icons.Rounded.Star,
-    "Divider" to Icons.Rounded.HorizontalRule,
     "HorizontalDivider" to Icons.Rounded.HorizontalRule,
     "Card" to Icons.Rounded.CreditCard,
-    "com.google.android.material.card.MaterialCardView" to Icons.Rounded.CreditCard,
-    "com.google.android.material.chip.Chip" to Icons.Rounded.Label,
-    "com.google.android.material.textfield.TextInputLayout" to Icons.Rounded.TextFields,
-    "com.google.android.material.bottomnavigation.BottomNavigationView" to Icons.Rounded.Menu,
-    "com.google.android.material.appbar.MaterialToolbar" to Icons.Rounded.WebAsset,
+    "MaterialCardView" to Icons.Rounded.CreditCard,
+    "Chip" to Icons.Rounded.Label,
+    "BottomNavigationView" to Icons.Rounded.Dock,
+    "MaterialToolbar" to Icons.Rounded.WebAsset,
 )
