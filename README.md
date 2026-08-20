@@ -138,3 +138,23 @@ or exact layout.
 
 See `extension.yaml` for the language manifest and
 `templates/android-app/template.yaml` for the scaffold recipe.
+
+## Packaging this extension
+
+The layout designer is an Android module under `designer/`, and what ships is the APK it
+produces — not the module. Build it before packing:
+
+```sh
+cd designer && ./gradlew assembleRelease
+cp build/outputs/apk/release/*-release-unsigned.apk ../lib/designer.apk
+```
+
+Unsigned is correct: JCode loads this APK with a `DexClassLoader` and never installs it, so
+nothing checks its signature. What *is* checked is the signature on the `.jext` around it —
+an extension shipping native code is refused unless the package itself was officially signed.
+
+`lib/` is gitignored and `designer/` is in `.jextignore`, so the APK is rebuilt per release
+rather than committed, and the Gradle wrapper and build scripts stay out of the package. Both
+matter: without the first, `entry.native.apk` points at nothing and the designer fails to load
+with "native entry is missing"; without the second, every package carries a build toolchain
+nobody on a phone can run.

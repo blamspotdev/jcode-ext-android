@@ -1,0 +1,4 @@
+lib/
+designer/build/
+designer/.gradle/
+*.jext
