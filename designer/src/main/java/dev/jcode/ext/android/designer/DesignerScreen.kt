@@ -60,6 +60,7 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import java.io.File
+import kotlin.math.roundToInt
 
 /** A device the canvas can be sized to. Widths are the common Android breakpoints. */
 internal data class DeviceSize(val label: String, val widthDp: Int, val heightDp: Int)
@@ -253,6 +254,7 @@ internal fun DesignerScreen(
                     onDragTo = { at -> drag = drag?.copy(position = at) },
                     onDrop = { dropped -> applyDrop(if (dropped) hover else null) },
                     onEffectiveZoom = { effectiveZoom = it },
+                    onZoomBy = { factor -> zoom = (effectiveZoom * factor).coerceIn(0.1f, 3f) },
                 )
             }
         }
@@ -434,10 +436,15 @@ private fun DesignCanvas(
     onDragTo: (Offset) -> Unit,
     onDrop: (dropped: Boolean) -> Unit,
     onEffectiveZoom: (Float) -> Unit,
+    onZoomBy: (Float) -> Unit,
 ) {
     val outline = MaterialTheme.colorScheme.primary
     val screenDensity = LocalDensity.current.density
     var canvasCoords by remember { mutableStateOf<LayoutCoordinates?>(null) }
+    // Where the frame has been dragged to. Only meaningful once it is bigger than the pane, and
+    // dropped whenever the canvas goes back to fitting itself — there is nothing to pan to then.
+    var pan by remember { mutableStateOf(Offset.Zero) }
+    LaunchedEffect(zoom) { if (zoom == null) pan = Offset.Zero }
 
     BoxWithConstraints(
         // Clipped, because past the zoom that fits, the frame is *meant* to overflow — that is what
@@ -452,8 +459,19 @@ private fun DesignCanvas(
         LaunchedEffect(effective) { onEffectiveZoom(effective) }
         val barColour = if (dark) Color(0xFF1E1E1E) else Color(0xFFE8E8E8)
 
+        // Panning is bounded by how much frame there is beyond the pane: half the overflow each
+        // way, so the frame can always be brought fully into view and never dragged out of it.
+        val limitX: Float
+        val limitY: Float
+        with(LocalDensity.current) {
+            limitX = ((device.widthDp.dp * effective - maxWidth) / 2).coerceAtLeast(0.dp).toPx()
+            limitY = ((device.heightDp.dp * effective - maxHeight) / 2).coerceAtLeast(0.dp).toPx()
+        }
+        val panned = Offset(pan.x.coerceIn(-limitX, limitX), pan.y.coerceIn(-limitY, limitY))
+
         Column(
             modifier = Modifier
+                .offset { IntOffset(panned.x.roundToInt(), panned.y.roundToInt()) }
                 // Two things a plain `size` gets wrong once the zoom exceeds the fit. It is a
                 // *preferred* size, so the parent coerced the height to the pane while leaving the
                 // width alone and the phone came out squashed towards square. And an oversized child
@@ -595,6 +613,8 @@ private fun DesignCanvas(
                             onDrop(dropped)
                         }
                     },
+                    onPan = { delta -> pan += delta },
+                    onZoomBy = onZoomBy,
                 ),
             )
 

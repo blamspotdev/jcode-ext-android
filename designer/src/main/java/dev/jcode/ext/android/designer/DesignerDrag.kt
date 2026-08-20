@@ -16,6 +16,13 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.input.pointer.PointerEventTimeoutCancellationException
+import androidx.compose.foundation.gestures.calculatePan
+import androidx.compose.foundation.gestures.calculateZoom
+import androidx.compose.ui.input.pointer.AwaitPointerEventScope
+import androidx.compose.ui.input.pointer.PointerId
+import androidx.compose.ui.input.pointer.isCtrlPressed
+import androidx.compose.ui.input.pointer.positionChange
+import androidx.compose.ui.input.pointer.positionChanged
 import androidx.compose.ui.input.pointer.PointerInputChange
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.LayoutCoordinates
@@ -116,38 +123,102 @@ internal fun Modifier.canvasGestures(
     onDragStart: (Offset) -> Unit,
     onDragMove: (Offset) -> Unit,
     onDragEnd: (dropped: Boolean) -> Unit,
+    onPan: (Offset) -> Unit,
+    onZoomBy: (Float) -> Unit,
 ): Modifier {
     val tap by rememberUpdatedState(onTap)
     val start by rememberUpdatedState(onDragStart)
     val move by rememberUpdatedState(onDragMove)
     val end by rememberUpdatedState(onDragEnd)
+    val pan by rememberUpdatedState(onPan)
+    val zoomBy by rememberUpdatedState(onZoomBy)
     return pointerInput(key) {
-    awaitEachGesture {
-        val down = awaitFirstDown()
-        // Consumed so the inflated layout underneath does not also react: a previewed Button that
-        // ripples when the user meant to select it is showing the app's behaviour, not the IDE's.
-        down.consume()
+        awaitEachGesture {
+            val down = awaitFirstDown()
+            // Consumed so the inflated layout underneath does not also react: a previewed Button
+            // that ripples when the user meant to select it is showing the app's behaviour, not the
+            // IDE's.
+            down.consume()
 
-        var up: PointerInputChange? = null
-        var longPressed = false
-        try {
-            up = withTimeout(viewConfiguration.longPressTimeoutMillis) { waitForUpOrCancellation() }
-        } catch (_: PointerEventTimeoutCancellationException) {
-            longPressed = true
-        }
+            // Ctrl and drag is the mouse's second hand. A pointer has one button and no way to say
+            // "move the view rather than the thing under me", and on a laptop there is no second
+            // finger to say it with either.
+            if (currentEvent.keyboardModifiers.isCtrlPressed) {
+                panUntilUp(down.id, pan)
+                return@awaitEachGesture
+            }
 
-        if (!longPressed) {
-            if (up != null) tap(down.position)
-            return@awaitEachGesture
-        }
+            var up: PointerInputChange? = null
+            var longPressed = false
+            var multitouch = false
+            try {
+                withTimeout(viewConfiguration.longPressTimeoutMillis) {
+                    while (true) {
+                        val event = awaitPointerEvent()
+                        // A second finger arriving turns this into a pinch, whatever the first one
+                        // looked like it was starting.
+                        if (event.changes.size > 1) {
+                            multitouch = true
+                            break
+                        }
+                        val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                        if (!change.pressed) {
+                            up = change
+                            break
+                        }
+                    }
+                }
+            } catch (_: PointerEventTimeoutCancellationException) {
+                longPressed = true
+            }
 
-        start(down.position)
-        val completed = drag(down.id) { change ->
-            move(change.position)
-            change.consume()
+            if (multitouch) {
+                transformUntilUp(pan, zoomBy)
+                return@awaitEachGesture
+            }
+
+            if (!longPressed) {
+                if (up != null) tap(down.position)
+                return@awaitEachGesture
+            }
+
+            start(down.position)
+            val completed = drag(down.id) { change ->
+                move(change.position)
+                change.consume()
+            }
+            end(completed)
         }
-        end(completed)
     }
+}
+
+/** One pointer, moving the view rather than anything in it. */
+private suspend fun AwaitPointerEventScope.panUntilUp(id: PointerId, onPan: (Offset) -> Unit) {
+    drag(id) { change ->
+        onPan(change.positionChange())
+        change.consume()
+    }
+}
+
+/**
+ * Two fingers: pinch to zoom, move together to pan.
+ *
+ * Zoom arrives as a *ratio* per event, which is what a pinch measures and what the toolbar's
+ * buttons already apply — so both routes to zooming agree on what a step means.
+ */
+private suspend fun AwaitPointerEventScope.transformUntilUp(
+    onPan: (Offset) -> Unit,
+    onZoomBy: (Float) -> Unit,
+) {
+    while (true) {
+        val event = awaitPointerEvent()
+        if (event.changes.any { it.isConsumed }) return
+        val zoom = event.calculateZoom()
+        val panned = event.calculatePan()
+        if (zoom != 1f) onZoomBy(zoom)
+        if (panned != Offset.Zero) onPan(panned)
+        event.changes.forEach { if (it.positionChanged()) it.consume() }
+        if (event.changes.none { it.pressed }) return
     }
 }
 
