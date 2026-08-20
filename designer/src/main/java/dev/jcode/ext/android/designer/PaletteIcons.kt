@@ -65,6 +65,14 @@ import androidx.compose.ui.graphics.vector.ImageVector
  * "LinearLayout (horizontal)" are one tag and two very different pictures, and the direction is the
  * whole reason a beginner picks one.
  *
+ * A directional glyph shows the container's **own axis**, not the arrangement of its children —
+ * vertical gets the upright bars, horizontal gets the stacked ones. Depicting the children instead
+ * is defensible and was tried first: a vertical layout does stack its children as rows. But it puts
+ * a horizontal picture next to the word "vertical", and nobody reads past that to the reasoning.
+ * The same rule governs `Column` and `Row`, which share these two glyphs, and it lines the names up
+ * as a side effect — `Column` is drawn by the icon called `ViewColumn`. `PaletteIconsTest` pins the
+ * pairing, since half a swap is worse than either convention.
+ *
  * **By simple name**, so `com.google.android.material.button.MaterialButton` finds `MaterialButton`.
  * The map used to be keyed on whatever string the entry happened to produce, so a widget declared
  * by its fully-qualified name fell through to the generic glyph and said nothing at all —
@@ -80,8 +88,8 @@ internal fun paletteIcon(item: PaletteItem): ImageVector = BY_LABEL[item.label]
 internal val BY_LABEL: Map<String, ImageVector> = mapOf(
     "Heading" to Icons.Rounded.Title,
     "Password field" to Icons.Rounded.Password,
-    "LinearLayout (vertical)" to Icons.Rounded.ViewAgenda,
-    "LinearLayout (horizontal)" to Icons.Rounded.ViewColumn,
+    "LinearLayout (vertical)" to Icons.Rounded.ViewColumn,
+    "LinearLayout (horizontal)" to Icons.Rounded.ViewAgenda,
     // A determinate bar reports how far along it is; the indeterminate one cannot.
     "ProgressBar (bar)" to Icons.Rounded.Percent,
     "Spacer" to Icons.Rounded.SpaceBar,
@@ -118,9 +126,9 @@ internal val BY_TAG: Map<String, ImageVector> = mapOf(
     "Switch" to Icons.Rounded.ToggleOn,
     "FloatingActionButton" to Icons.Rounded.AddCircle,
 
-    // Things that arrange other things.
-    "Column" to Icons.Rounded.ViewAgenda,
-    "Row" to Icons.Rounded.ViewColumn,
+    // Things that arrange other things. See the note above on which way round the two go.
+    "Column" to Icons.Rounded.ViewColumn,
+    "Row" to Icons.Rounded.ViewAgenda,
     "Box" to Icons.Rounded.Layers,
     "FrameLayout" to Icons.Rounded.Layers,
     "Container" to Icons.Rounded.CropSquare,

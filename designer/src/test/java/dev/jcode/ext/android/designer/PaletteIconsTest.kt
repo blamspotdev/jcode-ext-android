@@ -2,6 +2,8 @@ package dev.jcode.ext.android.designer
 
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.AddCircle
+import androidx.compose.material.icons.rounded.ViewAgenda
+import androidx.compose.material.icons.rounded.ViewColumn
 import androidx.compose.material.icons.rounded.Widgets
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -60,6 +62,30 @@ class PaletteIconsTest {
             .groupBy { it.format }
             .forEach { (format, _) -> assertTextPairDiffers(format) }
         assertEquals(icon("TextView"), icon("Text"), "a label is a label in every language")
+    }
+
+    /**
+     * One direction, one picture, in every language the palette speaks.
+     *
+     * Three entries mean "stacks its children downwards" — XML says `LinearLayout (vertical)`,
+     * Compose and Flutter both say `Column` — and they share two glyphs with their horizontal
+     * counterparts. Changing which way round those two go is a judgement call that can be revisited;
+     * changing it in one language and not the others is only ever a mistake, and it is invisible
+     * because no two of the three appear on screen together.
+     */
+    @Test
+    fun oneDirectionIsOnePicture() {
+        fun glyphsFor(labels: Set<String>) =
+            Palette.items.filter { it.label in labels }.map { paletteIcon(it) }.distinct()
+
+        val vertical = glyphsFor(setOf("LinearLayout (vertical)", "Column"))
+        val horizontal = glyphsFor(setOf("LinearLayout (horizontal)", "Row"))
+        assertEquals(1, vertical.size, "vertical containers are drawn more than one way")
+        assertEquals(1, horizontal.size, "horizontal containers are drawn more than one way")
+
+        // The glyph shows the container's own axis, so vertical is the upright bars.
+        assertEquals(Icons.Rounded.ViewColumn, vertical.single(), "vertical should be the upright bars")
+        assertEquals(Icons.Rounded.ViewAgenda, horizontal.single(), "horizontal should be the stacked bars")
     }
 
     private fun assertTextPairDiffers(format: DesignFormat) {
