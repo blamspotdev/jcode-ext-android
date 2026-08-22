@@ -1,0 +1,7 @@
+id: android-bundle-release
+label: Bundle release AAB
+kind: build
+requires: ["build.gradle*"]
+terminals:
+  - label: Build
+    script: build.sh

@@ -1,0 +1,7 @@
+id: android-install-debug
+label: Install debug build on the selected device
+kind: build
+requires: ["build.gradle*"]
+terminals:
+  - label: Install
+    script: install.sh

@@ -1,0 +1,71 @@
+# ---------------------------------------------------------------- Android XML
+id: android-xml
+extensions: [".xml"]
+comment: { blockStart: "<!--", blockEnd: "-->" }
+strings: ["\"", "'"]
+keywords: [
+  LinearLayout, ConstraintLayout, FrameLayout, RelativeLayout, TextView, Button,
+  EditText, ImageView, RecyclerView, ScrollView,
+  "androidx.constraintlayout.widget.ConstraintLayout",
+  manifest, application, activity, "uses-permission", "intent-filter", action,
+  category, provider, service, receiver,
+  "android:layout_width", "android:layout_height", "android:id", "android:text",
+  "android:orientation", "android:gravity", "android:padding",
+  "android:layout_margin", "android:background", "android:textSize",
+  "android:textColor", "android:src", "android:visibility", "android:onClick"
+]
+types: [
+  match_parent, wrap_content, fill_parent, "true", "false", vertical, horizontal,
+  center, center_vertical, center_horizontal, start, end, top, bottom, left, right,
+  visible, invisible, gone, "@+id", "@id", "@string", "@drawable", "@color",
+  "@dimen", "@style", "@mipmap", "@android:id", parent
+]
+formatter: { indent: 4, trimTrailingWhitespace: true, insertFinalNewline: true }
+completions:
+  - { label: textview, detail: TextView, insert: "<TextView\n    android:layout_width=\"wrap_content\"\n    android:layout_height=\"wrap_content\"\n    android:text=\"$0\" />" }
+  - { label: button, detail: Button, insert: "<Button\n    android:id=\"@+id/$1\"\n    android:layout_width=\"wrap_content\"\n    android:layout_height=\"wrap_content\"\n    android:text=\"$0\" />" }
+  - { label: constraint, detail: ConstraintLayout block, insert: "<androidx.constraintlayout.widget.ConstraintLayout\n    xmlns:android=\"http://schemas.android.com/apk/res/android\"\n    xmlns:app=\"http://schemas.android.com/apk/res-auto\"\n    android:layout_width=\"match_parent\"\n    android:layout_height=\"match_parent\">\n    $0\n</androidx.constraintlayout.widget.ConstraintLayout>" }
+  - { label: matchparent, detail: match_parent size, insert: "android:layout_width=\"match_parent\"\n    android:layout_height=\"match_parent\"$0" }
+  - { label: activity, detail: manifest <activity>, insert: "<activity\n    android:name=\".$1\"\n    android:exported=\"$2\">\n    $0\n</activity>" }
+  - { label: permission, detail: uses-permission, insert: "<uses-permission android:name=\"android.permission.$0\" />" }
+helpers:
+  - title: activity_main.xml (ConstraintLayout)
+    snippet: |
+      <?xml version="1.0" encoding="utf-8"?>
+      <androidx.constraintlayout.widget.ConstraintLayout
+          xmlns:android="http://schemas.android.com/apk/res/android"
+          xmlns:app="http://schemas.android.com/apk/res-auto"
+          android:layout_width="match_parent"
+          android:layout_height="match_parent">
+
+          <TextView
+              android:id="@+id/message"
+              android:layout_width="wrap_content"
+              android:layout_height="wrap_content"
+              android:text="$0"
+              app:layout_constraintBottom_toBottomOf="parent"
+              app:layout_constraintEnd_toEndOf="parent"
+              app:layout_constraintStart_toStartOf="parent"
+              app:layout_constraintTop_toTopOf="parent" />
+
+      </androidx.constraintlayout.widget.ConstraintLayout>
+  - title: AndroidManifest.xml (minimal)
+    snippet: |
+      <?xml version="1.0" encoding="utf-8"?>
+      <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+          <application
+              android:allowBackup="true"
+              android:label="$1"
+              android:theme="@style/Theme.Material3.DayNight">
+              <activity
+                  android:name=".MainActivity"
+                  android:exported="true">
+                  <intent-filter>
+                      <action android:name="android.intent.action.MAIN" />
+                      <category android:name="android.intent.category.LAUNCHER" />
+                  </intent-filter>
+              </activity>
+          </application>
+
+      </manifest>

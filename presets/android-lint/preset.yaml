@@ -1,0 +1,7 @@
+id: android-lint
+label: Run lint
+kind: build
+requires: ["build.gradle*"]
+terminals:
+  - label: Lint
+    script: lint.sh

@@ -1,0 +1,7 @@
+id: android-clean
+label: Clean build outputs
+kind: build
+requires: ["build.gradle*"]
+terminals:
+  - label: Clean
+    script: clean.sh
