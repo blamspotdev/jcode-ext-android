@@ -71,9 +71,12 @@ entry:
   # The layout designer. Loaded on demand, in JCode's own process, and only when a file it claims is
   # opened in preview — see designer/ for what it is and NativeExtensionLoader for how it gets in.
   native:
-    apk: lib/designer.apk
+    # A bare dex, not an APK: the designer resolves no resources — it parses layout XML itself and
+    # builds views in code — so there was no resource table for JCode to attach, only an archive
+    # carrying an empty one.
+    dex: lib/designer.dex
     class: dev.jcode.ext.android.designer.DesignerExtension
-    abi: 2
+    abi: 3
     claims:
       # A layout is decided by where it lives: AndroidManifest.xml is also XML and is not a layout.
       #
