@@ -59,7 +59,7 @@ kotlin {
 dependencies {
     // JCode's, resolved from JCode at runtime. Versions must match what JCode ships — see the
     // extension's README for the pinned set. compileOnly is load-bearing, not tidiness.
-    compileOnly(files("libs/jcode-ext-api-abi4.jar"))
+    compileOnly(files("libs/jcode-ext-api-abi5.jar"))
     compileOnly(platform("androidx.compose:compose-bom:2025.01.00"))
     compileOnly("androidx.compose.ui:ui")
     compileOnly("androidx.compose.foundation:foundation")
