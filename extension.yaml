@@ -76,7 +76,7 @@ entry:
     # carrying an empty one.
     dex: lib/designer.dex
     class: dev.jcode.ext.android.designer.DesignerExtension
-    abi: 3
+    abi: 4
     claims:
       # A layout is decided by where it lives: AndroidManifest.xml is also XML and is not a layout.
       #
