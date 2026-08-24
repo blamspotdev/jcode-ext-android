@@ -1,0 +1,7 @@
+id: android-unit-tests
+label: Run unit tests
+kind: build
+requires: ["build.gradle*"]
+terminals:
+  - label: Test
+    script: test.sh

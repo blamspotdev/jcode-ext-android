@@ -1,0 +1,7 @@
+id: android-doctor-fix
+label: Apply build fixes
+kind: build
+requires: ["build.gradle*"]
+terminals:
+  - label: Fix
+    script: fix.sh

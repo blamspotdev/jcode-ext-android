@@ -5,10 +5,14 @@ plugins {
 }
 
 /**
- * The Android layout designer, built as an APK that JCode loads into its own process.
+ * The Android layout designer, loaded into JCode's own process as a bare dex.
  *
- * An APK rather than a library because JCode gives the plugin its resources with `addAssetPath`,
- * and that takes an archive. Nothing here is ever installed on the device as an app.
+ * What ships is `classes.dex`, not the APK the build produces around it. The designer resolves no
+ * resources at all — it parses layout XML itself, builds views programmatically and applies
+ * constraints through ConstraintSet's code API — so there is no resource table for JCode's
+ * `addAssetPath` to attach, and the 25 KB one an APK carries was along for the ride. A plugin that
+ * DID own drawables or strings would still need the archive. Nothing here is ever installed as an
+ * app.
  *
  * **The dependency rules are the ABI.** Anything JCode already ships is `compileOnly`: the plugin
  * must resolve those classes from JCode at runtime, because the composition it returns is spliced
@@ -55,7 +59,7 @@ kotlin {
 dependencies {
     // JCode's, resolved from JCode at runtime. Versions must match what JCode ships — see the
     // extension's README for the pinned set. compileOnly is load-bearing, not tidiness.
-    compileOnly(files("libs/jcode-ext-api-abi2.jar"))
+    compileOnly(files("libs/jcode-ext-api-abi5.jar"))
     compileOnly(platform("androidx.compose:compose-bom:2025.01.00"))
     compileOnly("androidx.compose.ui:ui")
     compileOnly("androidx.compose.foundation:foundation")

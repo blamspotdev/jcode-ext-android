@@ -1,0 +1,13 @@
+# --- the two that make a CLONED project buildable at all -----------------
+#
+# A repository written on a desktop assumes a desktop SDK: a compileSdk newer than the ARM-native
+# aapt2 here can read, an sdk.dir from another machine, a wrapper jar that was gitignored. None of
+# that announces itself — the build just fails deep inside resource linking — so the check names
+# each one, and the fix repairs the three that can be repaired locally.
+id: android-doctor
+label: Check this project builds here
+kind: build
+requires: ["build.gradle*"]
+terminals:
+  - label: Check
+    script: check.sh

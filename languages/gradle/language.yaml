@@ -1,0 +1,84 @@
+# ---------------------------------------------------------------- Gradle
+id: gradle
+extensions: [".gradle"]
+comment: { line: "//", blockStart: "/*", blockEnd: "*/" }
+strings: ["\"", "'"]
+keywords: [
+  plugins, id, apply, android, dependencies, implementation, testImplementation,
+  androidTestImplementation, api, compileOnly, runtimeOnly, buildTypes, release,
+  debug, defaultConfig, compileSdk, minSdk, targetSdk, applicationId, versionCode,
+  versionName, namespace, kotlinOptions, jvmTarget, compileOptions, sourceCompatibility,
+  targetCompatibility, buildFeatures, viewBinding, dataBinding, compose, repositories,
+  google, mavenCentral, task, ext, allprojects, subprojects, minifyEnabled,
+  proguardFiles
+]
+types: []
+formatter: { indent: 4, trimTrailingWhitespace: true, insertFinalNewline: true }
+completions:
+  - { label: dependencies, detail: dependencies block, insert: "dependencies {\n    implementation(\"$1\")\n}" }
+  - { label: android, detail: android block, insert: "android {\n    namespace \"$1\"\n    compileSdk 34\n\n    defaultConfig {\n        applicationId \"$2\"\n        minSdk 24\n        targetSdk 34\n        versionCode 1\n        versionName \"1.0\"\n    }\n    $0\n}" }
+  - { label: plugins, detail: plugins block, insert: "plugins {\n    id(\"$1\")\n}" }
+  - { label: implementation, detail: implementation dependency, insert: "implementation(\"$0\")" }
+  - { label: defaultConfig, detail: defaultConfig block, insert: "defaultConfig {\n    applicationId \"$1\"\n    minSdk 24\n    targetSdk 34\n    versionCode 1\n    versionName \"1.0\"\n    $0\n}" }
+helpers:
+  - title: android { } skeleton
+    snippet: |
+      android {
+          namespace "$1"
+          compileSdk 34
+
+          defaultConfig {
+              applicationId "$2"
+              minSdk 24
+              targetSdk 34
+              versionCode 1
+              versionName "1.0"
+          }
+
+          buildTypes {
+              release {
+                  minifyEnabled false
+              }
+          }
+
+          compileOptions {
+              sourceCompatibility JavaVersion.VERSION_17
+              targetCompatibility JavaVersion.VERSION_17
+          }
+
+          kotlinOptions {
+              jvmTarget = "17"
+          }
+      }
+  - title: dependencies { } block
+    snippet: |
+      dependencies {
+          implementation "androidx.core:core-ktx:1.13.1"
+          implementation "androidx.appcompat:appcompat:1.7.0"
+          implementation "com.google.android.material:material:1.12.0"
+          implementation "androidx.constraintlayout:constraintlayout:2.1.4"
+          $0
+      }
+  # Reminders for the build/test loop, as // comments so they drop into a build script
+  # without breaking it. Read, then delete.
+  - title: vdevice build and test without installing
+    snippet: |
+      // "Add run config" offers "Run in a virtual device": it builds this module and opens
+      // the APK in a Device sandbox tab. Nothing is installed and adb is never used, so it
+      // works on a phone that was never paired.
+      // Turn it on once: Settings -> Environment -> "Run in a virtual device".
+      // By hand: ./gradlew :${1:app}:assembleDebug, then paste
+      // ${1:app}/build/outputs/apk/debug/*.apk into the tab's "APK path".
+      $0
+  - title: adb drive JCode vDevice from a terminal
+    snippet: |
+      // J Code serves its own adbd, and a terminal's ANDROID_SERIAL already points at it,
+      // so these need no -s and no paired phone:
+      //   adb devices -l   ->   127.0.0.1:5620   device   model:JCode_vDevice
+      //   adb install ${1:app}/build/outputs/apk/debug/app-debug.apk
+      //   adb shell am start -n ${2:com.example.app}/.MainActivity      // opens in the tab
+      //   adb shell am start -n ${2:com.example.app}/.MainActivity --windowingMode 1  // full screen
+      //   adb exec-out screencap -p > shot.png
+      // That daemon serves install, pm list packages, am start, screencap and getprop.
+      // logcat, push/pull and uninstall are not answered.
+      $0

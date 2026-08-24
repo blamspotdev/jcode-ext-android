@@ -13,8 +13,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-import dev.jcode.ext.api.JCodeNativeExtension
-import dev.jcode.ext.api.NativeHost
+import dev.blamspot.jcode.ext.api.JCodeNativeExtension
+import dev.blamspot.jcode.ext.api.NativeHost
 import java.io.File
 
 /**

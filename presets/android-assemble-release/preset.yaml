@@ -1,0 +1,16 @@
+# --- the everyday Gradle tasks -------------------------------------------
+#
+# Gated on a build script rather than on `gradlew`: a repository whose gradle-wrapper.jar was
+# gitignored still has one, and is exactly the clone that needs these offered rather than told it
+# is not a Gradle project. Each falls back to the runtime's Gradle when there is no wrapper, and
+# runs the wrapper as `bash gradlew` because a checkout can arrive without its exec bit.
+#
+# J Code's own detection covers assembleDebug, per application module, so these start where it
+# stops rather than duplicating it.
+id: android-assemble-release
+label: Assemble release APK
+kind: build
+requires: ["build.gradle*"]
+terminals:
+  - label: Build
+    script: build.sh
