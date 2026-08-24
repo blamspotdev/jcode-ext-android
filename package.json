@@ -1,0 +1,9 @@
+{
+  "name": "jcode-ext-android",
+  "version": "0.7.1",
+  "private": true,
+  "description": "Android Dev Pack for JCode — languages, templates, build helpers, and the layout designer loaded into JCode's own process.",
+  "scripts": {
+    "build": "node build.mjs"
+  }
+}
