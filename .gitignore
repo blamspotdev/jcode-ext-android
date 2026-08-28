@@ -1,4 +1,4 @@
 lib/
-designer/build/
-designer/.gradle/
+native/build/
+native/.gradle/
 *.jext

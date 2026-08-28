@@ -1,7 +1,0 @@
-<?xml version="1.0" encoding="utf-8"?>
-<!-- Never installed as an app: JCode loads this archive's classes and resources into its own
-     process. There is no launcher activity and no permission here on purpose — the plugin runs with
-     JCode's identity, and declaring anything would only be misleading. -->
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
-    <application android:hasCode="true" />
-</manifest>

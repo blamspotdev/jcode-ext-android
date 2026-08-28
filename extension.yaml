@@ -1,20 +1,28 @@
 id: jcode.pack.android
 name: Android Dev Pack
 publisher: jcode
-version: 0.7.2
+version: 0.8.0
 type: language
-description: Android XML + Gradle language support, helpers, and an Android app template.
+description: Android XML + Gradle language support, a layout designer, the virtual device, and an Android app template.
 
 # A combined Android dev pack. Kotlin coloring/completion/formatting come from the
 # required Kotlin Dev Pack (jcode.lang.kotlin); this pack adds Android XML +
 # Gradle languages and declares an Android app project template.
 requires:
-  # The Kotlin Dev Pack requires the Kotlin LSP itself, so Android gets it transitively.
-  extensions: [jcode.lang.kotlin]
+  # The Kotlin Dev Pack requires the Kotlin LSP itself, so Android gets it transitively. The Java
+  # pack is here because Android is a JVM platform before it is a Kotlin one: the manifest, the
+  # Gradle plugin's own sources and most of what a decompiler or a stack trace shows are Java, and
+  # the pack also brings the JVM debug adapter this pack's debugging depends on.
+  extensions: [jcode.lang.kotlin, jcode.lang.java]
+  # adb is the distro's native aarch64 client, and it is a requirement rather than a suggestion now
+  # that this pack OWNS the virtual device. The device answers an adb daemon JCode binds in its own
+  # storage, and that daemon is reachable from a terminal, from `./gradlew installDebug` and from
+  # `flutter run` only through this client -- Google's platform-tools ship an x86_64-only adb that
+  # cannot execute here. Without it the device still runs, and half of what makes it a *device* is
+  # unreachable.
+  sdks: [adb]
 suggests:
-  # adb is the distro's native aarch64 client. The device sandbox itself needs nothing
-  # installed, but J Code's own adbd is only reachable from a terminal through it.
-  sdks: [android-sdk, adb]
+  sdks: [android-sdk]
   dbg: [java-debug]
 
 # Build helpers, so a project that was cloned rather than scaffolded here is one tap from an APK.
@@ -47,8 +55,12 @@ languages:
 shortDescription: >-
   Android XML + Gradle language support, helpers, and an Android app project template (Kotlin features via the Kotlin
   Dev Pack).
-minJCodeVersion: 1.0.0
-targetJCodeVersion: 1.0.0
+# 1.7.0 is where the virtual device stopped being part of JCode and became this pack's. An older
+# JCode has its own device built in, does not implement extension API 8, and has no `:guest` stub to
+# load this pack's container into — so installing this there would replace a working device with
+# nothing. The floor is what refuses that.
+minJCodeVersion: 1.7.0
+targetJCodeVersion: 1.7.0
 category: Languages
 subcategory: Android
 images:
@@ -68,15 +80,22 @@ entry:
   manifest: extension.yaml
   ui: null
   libs: []
-  # The layout designer. Loaded on demand, in JCode's own process, and only when a file it claims is
-  # opened in preview — see designer/ for what it is and NativeExtensionLoader for how it gets in.
+  # The pack's native half: the layout designer AND the virtual device. Loaded on demand, into
+  # JCode's own process — see native/ for what it is and NativeExtensionLoader for how it gets in.
   native:
-    # A bare dex, not an APK: the designer resolves no resources — it parses layout XML itself and
-    # builds views in code — so there was no resource table for JCode to attach, only an archive
-    # carrying an empty one.
-    dex: lib/designer.dex
-    class: dev.jcode.ext.android.designer.DesignerExtension
-    abi: 5
+    # An APK, not the bare dex this used to be. The designer resolved no resources, so a dex was
+    # enough; the virtual device owns drawables, ids that `uiautomator dump` reports, and the
+    # device's own system apps as assets — all of which need a resource table, and a table needs an
+    # archive for JCode's addAssetPath to attach.
+    apk: lib/android-pack.apk
+    # One entry class for both, dispatching on the `view` param — JCode allows one native entry per
+    # extension, and this pack is not one screen.
+    class: dev.jcode.ext.android.AndroidPackExtension
+    # Loaded into the `:guest` process by JCode's GuestSessionService stub, which owns that process
+    # because `android:process` can only be declared in a manifest. Declaring this is also how JCode
+    # knows this pack provides the virtual device at all.
+    guest: dev.jcode.ext.android.vdevice.VirtualDeviceGuest
+    abi: 8
     claims:
       # A layout is decided by where it lives: AndroidManifest.xml is also XML and is not a layout.
       #

@@ -141,20 +141,48 @@ See `extension.yaml` for the language manifest and
 
 ## Packaging this extension
 
-The layout designer is an Android module under `designer/`, and what ships is the APK it
-produces — not the module. Build it before packing:
+The pack's native half is an Android module under `native/`, and what ships is the APK it
+produces — not the module. It holds two unrelated things that share it only because JCode allows
+one `entry.native` per extension: the **layout designer** (`designer/`) and the **virtual device**
+(`vdevice/`), the container that runs a built APK inside JCode.
 
 ```sh
-cd designer && ./gradlew assembleRelease
-cp build/outputs/apk/release/*-release-unsigned.apk ../lib/designer.apk
+npm run build     # runs native/gradlew assembleRelease and copies the APK into lib/
+```
+
+or by hand:
+
+```sh
+cd native && ./gradlew assembleRelease
+cp build/outputs/apk/release/*-release-unsigned.apk ../lib/android-pack.apk
 ```
 
 Unsigned is correct: JCode loads this APK with a `DexClassLoader` and never installs it, so
 nothing checks its signature. What *is* checked is the signature on the `.jext` around it —
 an extension shipping native code is refused unless the package itself was officially signed.
+While working on the device that rule is a real cost, so JCode has one way past it:
+`Settings → Developer options` lets an unsigned sideloaded pack load. It is off by default.
 
-`lib/` is gitignored and `designer/` is in `.jextignore`, so the APK is rebuilt per release
+`lib/` is gitignored and `native/` is in `.jextignore`, so the APK is rebuilt per release
 rather than committed, and the Gradle wrapper and build scripts stay out of the package. Both
-matter: without the first, `entry.native.apk` points at nothing and the designer fails to load
+matter: without the first, `entry.native.apk` points at nothing and the pack fails to load
 with "native entry is missing"; without the second, every package carries a build toolchain
 nobody on a phone can run.
+
+### The compileOnly jars in `native/libs/`
+
+`jcode-ext-api-abi8.jar`, `jcode-core-design.jar` and `jcode-core-distro.jar` are JCode's own
+classes, and the pack compiles against them without bundling them: it resolves them from JCode at
+runtime, because it runs *inside* JCode's process and a second copy of Compose or of the design
+system would be the wrong one. Refresh them from the app repo when JCode's own move:
+
+```sh
+cd ../../j-code-android
+./gradlew :core:ext-api:bundleLibCompileToJarRelease           :core:design:bundleLibCompileToJarRelease           :core:distro:bundleLibCompileToJarRelease
+```
+
+then copy each `build/intermediates/compile_library_classes_jar/release/*/classes.jar` across.
+
+The Compose and AndroidX versions in `native/build.gradle.kts` are pinned to what JCode **resolves**,
+which is not what its `compose-bom` declares — `material3-adaptive` pulls the compose group up to
+1.9.0. Check them with `./gradlew :app:dependencies` rather than reading the BOM.
