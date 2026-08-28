@@ -584,7 +584,6 @@ internal class EmbeddedGuest(
         ).also { navigationBar = it }
         // Full height for the same reason the status bar is: the bar itself is a strip at the
         // bottom of it, and a view with no height receives no touches.
-        container.addView(nav, matchParent())
         val tasks = taskView ?: VirtualTaskView(
             context = context,
             onOpen = { app ->
@@ -593,7 +592,12 @@ internal class EmbeddedGuest(
             },
             onDismiss = { app -> GuestRuntime.forceStop(app.packageName) },
         ).also { taskView = it }
+        // The task view goes UNDER the navigation bar, which is where a phone puts it: recents is a
+        // screen you leave by pressing Home or Recents again, and a scrim that covered those buttons
+        // would be a screen with no way out but the scrim itself. Added before the bar for that
+        // reason — the bar is last, so it stays pressable while recents is up.
         container.addView(tasks, matchParent())
+        container.addView(nav, matchParent())
         keyboard?.raise()
         permission?.let { prompt ->
             container.removeView(prompt)

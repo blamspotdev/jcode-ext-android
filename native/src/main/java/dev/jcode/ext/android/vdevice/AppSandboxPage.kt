@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.requiredSize
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
@@ -57,7 +58,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
@@ -416,6 +416,18 @@ private fun DeviceScreen(
                         onSurface(it)
                     }
                 },
+                // The scale is the VIEW's, not a graphicsLayer's, and that is not a style choice.
+                // Compose's layer transform is applied when the guest's surface is composited but
+                // NOT to the MotionEvent handed down to the view inside it: touches arrived
+                // translated to the pane's top-left and never divided by the scale, so on a
+                // half-size pane every tap landed roughly twice as far down the screen as the finger
+                // — pressing one button and getting the one above it. Android's own View transform
+                // is inverted by `ViewGroup.dispatchTransformedTouchEvent` on the way in, so setting
+                // it here makes the drawing and the touches agree by construction.
+                update = { view ->
+                    view.scaleX = scale
+                    view.scaleY = scale
+                },
                 // Laid out at the device's OWN size and then scaled, rather than filling the tab.
                 // That is what makes the resize real: the view's size is what reaches
                 // `onSizeChanged`, and from there the guest's DisplayMetrics — so the app measures
@@ -423,14 +435,16 @@ private fun DeviceScreen(
                 // is drawn. Touches are unaffected: the framework maps them back through the view's
                 // transform, so what arrives is already in device pixels.
                 modifier = Modifier
-                    .size(
+                    // requiredSize, not size: `size` sets a *preferred* size that the parent's
+                    // incoming max constraints still clamp, so a 1600x2560 tablet came out
+                    // 1600x597 — the tab's own height — and the guest was told it was on a screen
+                    // 299dp tall. requiredSize ignores the parent's constraints, which is the whole
+                    // point here: the device is its own size and the scale below is what makes it
+                    // fit.
+                    .requiredSize(
                         width = with(density) { deviceSize.first.toDp() },
                         height = with(density) { deviceSize.second.toDp() },
-                    )
-                    .graphicsLayer {
-                        scaleX = scale
-                        scaleY = scale
-                    },
+                    ),
             )
             DisposableEffect(Unit) { onDispose { created.value?.let(onSurfaceGone) } }
         }
@@ -575,6 +589,10 @@ private fun BoxScope.DeviceControls(
 ) {
     var expanded by remember { mutableStateOf(true) }
     var caveatOpen by remember { mutableStateOf(false) }
+    // The screen-options menu lives inside the bar's own composition, so collapsing the bar takes the
+    // menu with it. Without this the bar timed out from under an open menu after four seconds and
+    // every selection after that landed on the guest instead — the menu was gone before it was read.
+    var screenMenuOpen by remember { mutableStateOf(false) }
     // The dialog is a window of its own, so nothing presses the bar while it is up — and a guest that
     // stops takes its caveat with it, which must also let the timer go again.
     val openCaveat = caveat?.takeIf { caveatOpen }
@@ -588,8 +606,8 @@ private fun BoxScope.DeviceControls(
         // Remembered with the bar rather than with the page, so a press that the collapse animation
         // cut short cannot strand the timer once the pill brings the bar back.
         var pressed by remember { mutableStateOf(false) }
-        LaunchedEffect(pressed, openCaveat) {
-            if (!pressed && openCaveat == null) {
+        LaunchedEffect(pressed, openCaveat, screenMenuOpen) {
+            if (!pressed && openCaveat == null && !screenMenuOpen) {
                 delay(TOOLBAR_IDLE_COLLAPSE_MS)
                 expanded = false
             }
@@ -613,6 +631,7 @@ private fun BoxScope.DeviceControls(
             Column {
                 DeviceToolbar(
                     caveat = caveat,
+                    onScreenMenu = { screenMenuOpen = it },
                     onKeyboard = onKeyboard,
                     onCaveat = { caveatOpen = true },
                     onHardware = onHardware,
@@ -688,6 +707,7 @@ private fun DeviceControlsHandle(onClick: () -> Unit, modifier: Modifier = Modif
 @Composable
 private fun DeviceToolbar(
     caveat: String?,
+    onScreenMenu: (Boolean) -> Unit,
     onKeyboard: () -> Unit,
     onCaveat: () -> Unit,
     onHardware: () -> Unit,
@@ -702,7 +722,7 @@ private fun DeviceToolbar(
         // No Back here any more: it is a button on the device's own navigation bar, where
         // `screencap` shows it, `uiautomator dump` lists it and `input tap` can reach it — see
         // VirtualNavigationBar for why the toolbar was the wrong window for it.
-        ScreenOptionsAction()
+        ScreenOptionsAction(onOpenChange = onScreenMenu)
         ToolbarAction(Icons.Rounded.Keyboard, "Keyboard", onKeyboard)
         // The bench opens beside the device rather than over it, so the app being moved stays on
         // screen while it is being moved.
@@ -732,8 +752,12 @@ private fun DeviceToolbar(
  * resource qualifiers reselect and `onConfigurationChanged` fires. See [VirtualScreenOptions].
  */
 @Composable
-private fun ScreenOptionsAction() {
+private fun ScreenOptionsAction(onOpenChange: (Boolean) -> Unit) {
     var open by remember { mutableStateOf(false) }
+    // Told to the bar rather than kept private: the bar's idle collapse would otherwise dismiss this
+    // menu out from under whoever opened it.
+    LaunchedEffect(open) { onOpenChange(open) }
+    DisposableEffect(Unit) { onDispose { onOpenChange(false) } }
     val profile by VirtualScreenOptions.profile
     val rotated by VirtualScreenOptions.rotated
 
@@ -750,7 +774,12 @@ private fun ScreenOptionsAction() {
         DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
             VirtualScreenOptions.PROFILES.forEach { option ->
                 DropdownMenuItem(
-                    text = { Text("${option.label} — ${option.subtitle()}") },
+                    text = {
+                        Text(
+                            if (option.isNative) option.label
+                            else "${option.label} — ${option.subtitle()}",
+                        )
+                    },
                     leadingIcon = {
                         if (option == profile) {
                             Icon(Icons.Rounded.Check, contentDescription = null, modifier = Modifier.size(IconSize.md))
