@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.requiredSize
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
@@ -70,6 +71,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -291,8 +293,10 @@ internal fun AppSandboxPage(
         }
     }
 
-    Box(modifier) {
+    BoxWithConstraints(modifier) {
+        val pane = rememberPaneLayout(maxWidth, maxHeight)
         DeviceScreen(
+            pane = pane,
             session = session,
             status = status,
             running = running,
@@ -406,6 +410,7 @@ internal fun AppSandboxPage(
             // Every control on the bar acts on a running guest, and the home screen already names
             // the device — so with nothing running there is nothing for it to say.
             DeviceControls(
+                pane = pane,
                 caveat = (status as? SandboxStatus.Running)?.warning,
                 // The device's own keyboard, not the phone's. It is also the way out of the one
                 // bound the container has on noticing focus: a guest that moves it without any
@@ -422,12 +427,76 @@ internal fun AppSandboxPage(
 }
 
 /**
+ * Where the device sits in its tab, and how much room is left beside it.
+ *
+ * A fixed screen profile makes the device a **pane**: a portrait phone in a landscape tab leaves
+ * two wide empty columns, and the IDE's own chrome — the control bar and the home-screen buttons —
+ * used to be laid out against the whole tab and so came down on top of the device. With a gutter
+ * there is somewhere better for it to be, which is what [hasGutter] decides.
+ */
+private data class PaneLayout(
+    /** The device's own size, in its own pixels. */
+    val deviceSize: Pair<Int, Int>,
+    /** What the pane is drawn at, so a device larger than the tab still fits. */
+    val scale: Float,
+    /** Free space on ONE side of the pane, in dp. The pane is centred, so both sides have this. */
+    val sideGutterDp: Float,
+) {
+    /**
+     * Whether the chrome should move out beside the device instead of lying over it.
+     *
+     * The threshold is a column wide enough for the control bar's icons and the home screen's
+     * buttons to read as a column rather than as something clipped.
+     */
+    val hasGutter: Boolean get() = sideGutterDp >= GUTTER_MIN_DP
+}
+
+/** Narrower than this and a gutter is a margin, not somewhere to put things. */
+private const val GUTTER_MIN_DP = 148f
+
+@Composable
+private fun rememberPaneLayout(maxWidth: Dp, maxHeight: Dp): PaneLayout {
+    val density = LocalDensity.current
+    // The *phone's* dpi, which is what a profile with no density of its own inherits. Compose's
+    // Density carries a scale factor and a font scale, not a dpi bucket, so this comes from the
+    // display metrics rather than from `density`.
+    val phoneDensityDpi = LocalContext.current.resources.displayMetrics.densityDpi
+    val available = with(density) { maxWidth.roundToPx() to maxHeight.roundToPx() }
+    val profile by VirtualScreenOptions.profile
+    val rotated by VirtualScreenOptions.rotated
+
+    return remember(profile, rotated, available, phoneDensityDpi) {
+        // The device's real pixel size. A native profile is the tab's, which is what the device
+        // always used to be; a fixed one ignores the tab entirely and is scaled to fit.
+        val deviceSize = VirtualScreenOptions.pixels(available, phoneDensityDpi)
+        // Fit, never magnify: a 360dp phone on a tablet-sized tab is shown at 1:1 rather than blown
+        // up into a soft rectangle, the same as an emulator window.
+        val scale = if (deviceSize.first <= 0 || deviceSize.second <= 0) {
+            1f
+        } else {
+            minOf(
+                available.first.toFloat() / deviceSize.first,
+                available.second.toFloat() / deviceSize.second,
+                1f,
+            )
+        }
+        val paneWidth = deviceSize.first * scale
+        PaneLayout(
+            deviceSize = deviceSize,
+            scale = scale,
+            sideGutterDp = ((available.first - paneWidth) / 2f / density.density).coerceAtLeast(0f),
+        )
+    }
+}
+
+/**
  * The device's screen. The `SurfaceView` is here whether or not an app is: it is what gives the
  * device its resolution and the host token a guest is embedded under, so it is created with the tab
  * and outlives every app put on it.
  */
 @Composable
 private fun DeviceScreen(
+    pane: PaneLayout,
     session: AppSandboxSession,
     status: SandboxStatus,
     running: Boolean,
@@ -441,36 +510,28 @@ private fun DeviceScreen(
     onInstall: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    // Matches the wallpaper painted onto the surface, so the two never disagree along its edges
-    // while the surface is being created or resized.
-    BoxWithConstraints(
-        modifier = modifier.background(Color(VirtualWallpaper.BACKGROUND)),
+    // The surround is the EDITOR's background, not the device's wallpaper. It used to be the
+    // wallpaper colour so the surface's edges never disagreed with it while being created — which
+    // was right while the device filled the tab and is wrong now that it is a pane: the empty
+    // columns beside a portrait device are part of the editor, and painting them in the device's
+    // colour made the tab look like a device with its screen off. The wallpaper is kept directly
+    // behind the surface instead, where the flash it was guarding against actually happens.
+    Box(
+        modifier = modifier.background(MaterialTheme.colorScheme.background),
         contentAlignment = Alignment.Center,
     ) {
         val density = LocalDensity.current
-        // The *phone's* dpi, which is what a profile with no density of its own inherits. Compose's
-        // Density carries a scale factor and a font scale, not a dpi bucket, so this comes from the
-        // display metrics rather than from `density`.
-        val phoneDensityDpi = LocalContext.current.resources.displayMetrics.densityDpi
-        val available = with(density) { maxWidth.roundToPx() to maxHeight.roundToPx() }
-        val profile by VirtualScreenOptions.profile
-        val rotated by VirtualScreenOptions.rotated
+        val deviceSize = pane.deviceSize
+        val scale = pane.scale
+        val paneWidth = with(density) { (deviceSize.first * scale).toDp() }
+        val paneHeight = with(density) { (deviceSize.second * scale).toDp() }
 
-        // The device's real pixel size. A native profile is the tab's, which is what the device
-        // always used to be; a fixed one ignores the tab entirely and is scaled to fit below.
-        val deviceSize = remember(profile, rotated, available) {
-            VirtualScreenOptions.pixels(available, phoneDensityDpi)
-        }
-        // Fit, never magnify: a 360dp phone on a tablet-sized tab is shown at 1:1 rather than blown
-        // up into a soft rectangle, the same as an emulator window.
-        val scale = remember(deviceSize, available) {
-            if (deviceSize.first <= 0 || deviceSize.second <= 0) 1f
-            else minOf(
-                available.first.toFloat() / deviceSize.first,
-                available.second.toFloat() / deviceSize.second,
-                1f,
-            )
-        }
+        // Exactly the pane, behind the surface: what the wallpaper colour was always for.
+        Box(
+            modifier = Modifier
+                .size(paneWidth, paneHeight)
+                .background(Color(VirtualWallpaper.BACKGROUND)),
+        )
 
         key(generation) {
             // The view that is going announces *itself*, because a replacement is composed before
@@ -547,6 +608,7 @@ private fun DeviceScreen(
             // The home screen itself is on the surface, drawn by VirtualLauncher — only the chrome
             // that does not belong to the device is composed over it.
             !running -> HomeChrome(
+                pane = pane,
                 onInstall = onInstall,
                 onHardware = { SimulatedHardware.requestOpen() },
                 modifier = Modifier.fillMaxSize(),
@@ -578,19 +640,41 @@ private fun DeviceScreen(
  */
 @Composable
 private fun HomeChrome(
+    pane: PaneLayout,
     onInstall: () -> Unit,
     onHardware: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Box(modifier = modifier) {
-        Row(
-            modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = Space.xl),
-            horizontalArrangement = Arrangement.spacedBy(Space.sm),
-        ) {
-            CompactOutlinedButton(text = "Install an app", onClick = onInstall)
-            // Reachable with nothing running, because a route or an attitude is usually set up
-            // *before* the app that is meant to react to it is opened.
-            CompactOutlinedButton(text = "Hardware", onClick = onHardware)
+        if (pane.hasGutter) {
+            // Beside the device, not over it. A portrait device in a landscape tab leaves two empty
+            // columns, and these buttons laid out against the whole tab came down across the pane's
+            // own edges — over the app grid they are deliberately NOT part of.
+            // Against the device's edge, not adrift in the middle of the gutter: centred in a
+            // 400dp column these read as two buttons floating in empty space with no relationship to
+            // the thing they act on. An emulator puts its controls beside the device for the same
+            // reason.
+            Column(
+                modifier = Modifier
+                    .align(Alignment.CenterStart)
+                    .width(pane.sideGutterDp.dp)
+                    .padding(horizontal = Space.sm),
+                verticalArrangement = Arrangement.spacedBy(Space.sm),
+                horizontalAlignment = Alignment.End,
+            ) {
+                CompactOutlinedButton(text = "Install an app", onClick = onInstall)
+                CompactOutlinedButton(text = "Hardware", onClick = onHardware)
+            }
+        } else {
+            Row(
+                modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = Space.xl),
+                horizontalArrangement = Arrangement.spacedBy(Space.sm),
+            ) {
+                CompactOutlinedButton(text = "Install an app", onClick = onInstall)
+                // Reachable with nothing running, because a route or an attitude is usually set up
+                // *before* the app that is meant to react to it is opened.
+                CompactOutlinedButton(text = "Hardware", onClick = onHardware)
+            }
         }
     }
 }
@@ -716,14 +800,34 @@ private fun ScreenFallback(
  */
 @Composable
 private fun BoxScope.DeviceControls(
+    pane: PaneLayout,
     caveat: String?,
     onKeyboard: () -> Unit,
     onHardware: () -> Unit,
     onRestart: () -> Unit,
     onStop: () -> Unit,
 ) {
-    var expanded by remember { mutableStateOf(true) }
+    // With a gutter the bar has somewhere of its own to be, so it never collapses: the idle timer
+    // and the pill exist to get the bar off the *device's screen*, and beside the device it is not
+    // on it. That also takes the timer out of the way of its own menus.
     var caveatOpen by remember { mutableStateOf(false) }
+    if (pane.hasGutter) {
+        GutterControls(
+            pane = pane,
+            caveat = caveat,
+            onKeyboard = onKeyboard,
+            onCaveat = { caveatOpen = true },
+            onHardware = onHardware,
+            onRestart = onRestart,
+            onStop = onStop,
+        )
+        caveat?.takeIf { caveatOpen }?.let { message ->
+            GuestCaveatDialog(message = message, onDismiss = { caveatOpen = false })
+        }
+        return
+    }
+
+    var expanded by remember { mutableStateOf(true) }
     // The screen-options menu lives inside the bar's own composition, so collapsing the bar takes the
     // menu with it. Without this the bar timed out from under an open menu after four seconds and
     // every selection after that landed on the guest instead — the menu was gone before it was read.
@@ -790,6 +894,70 @@ private fun BoxScope.DeviceControls(
     // Outside the collapsing bar: the message takes longer to read than the bar stays up.
     openCaveat?.let { message ->
         GuestCaveatDialog(message = message, onDismiss = { caveatOpen = false })
+    }
+}
+
+/**
+ * The control bar when the device is a pane: a column in the gutter beside it.
+ *
+ * Vertical because that is the shape of the space a portrait device leaves, and permanent because
+ * the reasons the horizontal bar hides itself do not apply here — it is not covering the device's
+ * screen, so there is nothing to get out of the way of. An emulator's controls sit beside the device
+ * for the same reason.
+ */
+@Composable
+private fun BoxScope.GutterControls(
+    pane: PaneLayout,
+    caveat: String?,
+    onKeyboard: () -> Unit,
+    onCaveat: () -> Unit,
+    onHardware: () -> Unit,
+    onRestart: () -> Unit,
+    onStop: () -> Unit,
+) {
+    Column(
+        modifier = Modifier
+            .align(Alignment.CenterEnd)
+            .width(pane.sideGutterDp.dp)
+            .padding(Space.sm),
+        verticalArrangement = Arrangement.spacedBy(Space.xxs),
+        // Hugging the device's right edge, for the reason HomeChrome hugs its left one.
+        horizontalAlignment = Alignment.Start,
+    ) {
+        Surface(
+            shape = RoundedCornerShape(Radius.lg),
+            color = MaterialTheme.colorScheme.surface,
+            tonalElevation = 3.dp,
+        ) {
+            Column(
+                modifier = Modifier.padding(Space.xxs),
+                verticalArrangement = Arrangement.spacedBy(Space.xxs),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                ScreenOptionsAction(onOpenChange = {})
+                ToolbarAction(Icons.Rounded.Keyboard, "Keyboard", onKeyboard)
+                ToolbarAction(Icons.Rounded.Tune, "Device hardware", onHardware)
+                if (caveat != null) {
+                    ToolbarAction(
+                        icon = Icons.Rounded.Warning,
+                        label = "What this guest could not do",
+                        onClick = onCaveat,
+                        tint = MaterialTheme.colorScheme.error,
+                    )
+                }
+                HorizontalDivider(
+                    modifier = Modifier.padding(vertical = Space.xxs),
+                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f),
+                )
+                ToolbarAction(Icons.Rounded.RestartAlt, "Restart app", onRestart)
+                ToolbarAction(
+                    Icons.Rounded.Stop,
+                    "Stop",
+                    onStop,
+                    tint = MaterialTheme.colorScheme.error,
+                )
+            }
+        }
     }
 }
 

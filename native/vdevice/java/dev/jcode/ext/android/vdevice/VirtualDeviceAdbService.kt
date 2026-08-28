@@ -362,8 +362,34 @@ class VirtualDeviceAdbService(context: Context) : AdbServiceHandler {
         return when (args.firstOrNull()) {
             "size" -> "Physical size: ${width}x$height\n"
             "density" -> "Physical density: ${appContext.resources.displayMetrics.densityDpi}\n"
+            "user-rotation" -> "${if (VirtualScreenOptions.rotated.value) 1 else 0}\n"
+            "set-user-rotation" -> setUserRotation(args.drop(1))
             else -> null
         }
+    }
+
+    /**
+     * `wm set-user-rotation [free|lock] [-d DISPLAY] <0|1|2|3>` — turn the device.
+     *
+     * The device has two orientations rather than four: it is a rectangle the tab draws, not a panel
+     * on a gimbal, so 0 and 2 are portrait and 1 and 3 are landscape. The `free`/`lock` word and a
+     * `-d` display are parsed and ignored, because a script that already drives real devices will
+     * send them and refusing would be pedantry rather than honesty.
+     *
+     * A device on the "Fit the tab" profile has no shape of its own to turn — the tab's is the
+     * device's — so this refuses rather than silently doing nothing, and names what to change.
+     */
+    private fun setUserRotation(args: List<String>): String {
+        val rotation = args.lastOrNull()?.toIntOrNull()
+            ?: return "error: usage: wm set-user-rotation [free|lock] <0|1|2|3>\n"
+        if (rotation !in 0..3) return "error: rotation must be 0, 1, 2 or 3\n"
+        if (!VirtualScreenOptions.isOverridden) {
+            return "error: the device is on the tab's own shape, which has no rotation of its own; " +
+                "pick a screen size first\n"
+        }
+        val landscape = rotation % 2 == 1
+        VirtualScreenOptions.setRotated(landscape)
+        return "rotation is now $rotation (${if (landscape) "landscape" else "portrait"})\n"
     }
 
     /**

@@ -118,8 +118,20 @@ internal object VirtualScreenOptions {
         if (next.isNative) rotated.value = false
     }
 
-    fun rotate() {
-        if (isOverridden) rotated.value = !rotated.value
+    fun rotate() = setRotated(!rotated.value)
+
+    /**
+     * Turn the device, if it has a shape of its own to turn.
+     *
+     * A native profile is whatever shape the tab is, so rotating it would mean rotating the tab.
+     * Marked as a deliberate choice for the same reason [select] is: a setting read that arrived
+     * afterwards must not undo it.
+     */
+    @Synchronized
+    fun setRotated(landscape: Boolean) {
+        if (!isOverridden) return
+        chosen = true
+        rotated.value = landscape
     }
 
     /** The device's pixel size for the tab's [available] space and this phone's [phoneDensityDpi]. */
