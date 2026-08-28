@@ -57,10 +57,20 @@ internal fun emptyValue(type: Class<*>): Any? = when (type) {
  *    [GuestRuntime.resumeEmbedded] dispatches that one and drives the guest's own `LifecycleRegistry`
  *    for what the other would have reached.
  *
- * There is no way to lift that: `VMRuntime.setHiddenApiExemptions` — the usual escape hatch, reached
- * by double reflection — is itself `blocked` from Android 10 on, confirmed denied on this device.
- * So if a future platform demotes any of the greylisted members above, the fix is a real one (a
- * different hook point), not a bypass.
+ * **Nothing here bypasses the restriction, and one attempt was made and abandoned.**
+ * `VMRuntime.setHiddenApiExemptions` is the runtime's own switch for this, and reaching it by double
+ * reflection — invoking `Class.forName` and `Class.getDeclaredMethod` reflectively, so the caller the
+ * runtime sees is `java.lang.reflect.Method` on the boot classpath — is the usual escape hatch. It was
+ * written, run and measured on Android 13: **denied**, as the method is itself blocklisted. So if a
+ * future platform demotes any of the greylisted members above, the fix is a real one (a different
+ * hook point), not a bypass.
+ *
+ * What *does* lift it is the platform's own developer setting, which is the device's to give and not
+ * this app's to take: `adb shell settings put global hidden_api_policy 1`. With that set, measured on
+ * the same device, `Activity.mActivityLifecycleCallbacks` becomes readable and a guest's own
+ * activity-scoped callbacks receive the full sequence — `onActivityPostStarted`,
+ * `onActivityPostResumed` and `onActivityPreStopped` included. The tab's caveat names that command,
+ * because a warning nobody can act on is one that teaches people to ignore the icon behind it.
  *
  * None of this runs in the IDE process; the container only ever loads in `:guest`.
  */

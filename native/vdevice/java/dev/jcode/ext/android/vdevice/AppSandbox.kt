@@ -454,9 +454,18 @@ internal class AppSandboxSession(context: Context) {
         _surface.value = surface
         _status.value = SandboxStatus.Running(
             warning = if (result.getBoolean(VirtualDeviceGuest.KEY_FULL_LIFECYCLE, true)) null else
-                "Android 13 blocks Activity.mActivityLifecycleCallbacks, so callbacks this app " +
-                    "registered on the activity itself were not sent onActivityPostStarted or " +
-                    "onActivityPostResumed. Its own Lifecycle — and so Compose — is driven directly.",
+                // Names what is missing, what still arrives, and the one command that lifts it.
+                // It used to say only the first, which read as "your callbacks do not work here" —
+                // and measured, all of them arrive except two. A warning nobody can act on is a
+                // warning that trains people to ignore the icon it sits behind.
+                "This device cannot reach Activity.mActivityLifecycleCallbacks, which Android " +
+                    "restricts as a non-SDK member. Callbacks this app registered on the activity " +
+                    "still arrive — except onActivityPostStarted, onActivityPostResumed and " +
+                    "onActivityPreStopped, which only Activity.performStart/performResume send. " +
+                    "The app's own Lifecycle, and so Compose, is driven directly in their place.\n\n" +
+                    "To lift it, on a device you develop on:\n" +
+                    "adb shell settings put global hidden_api_policy 1\n\n" +
+                    "Then restart JCode. Undo it with `settings delete global hidden_api_policy`.",
         )
     }
 

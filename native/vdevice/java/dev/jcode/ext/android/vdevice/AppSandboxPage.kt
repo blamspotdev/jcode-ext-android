@@ -807,7 +807,6 @@ private fun ScreenFallback(
         modifier = Modifier.padding(Space.xxl).widthIn(max = 420.dp),
         color = MaterialTheme.colorScheme.surface,
         shape = MaterialTheme.shapes.medium,
-        tonalElevation = 3.dp,
     ) {
         Column(
             modifier = Modifier.padding(Space.xl),
@@ -915,8 +914,12 @@ private fun BoxScope.DeviceControls(
                         }
                     }
                 },
+            // No `tonalElevation`. Material 3 raises a surface by blending `primary` into it, and
+            // JCode's primary is blue — so the device's bar came out blue-tinted while every panel
+            // in the IDE around it, which sets a flat `surface`, stayed neutral grey. The divider
+            // below is what separates this from the device's screen; it does not need a tint to do
+            // that, and a tint is what made this look like somebody else's chrome.
             color = MaterialTheme.colorScheme.surface,
-            tonalElevation = 3.dp,
         ) {
             Column {
                 DeviceToolbar(
@@ -978,8 +981,9 @@ private fun BoxScope.GutterControls(
     ) {
         Surface(
             shape = RoundedCornerShape(Radius.lg),
+            // Flat, for the reason the horizontal bar is — the rounded shape against the editor's
+            // background is what makes this read as a panel.
             color = MaterialTheme.colorScheme.surface,
-            tonalElevation = 3.dp,
         ) {
             Column(
                 modifier = Modifier.padding(Space.xxs),
