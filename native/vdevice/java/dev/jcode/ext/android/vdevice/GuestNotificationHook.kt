@@ -31,25 +31,6 @@ internal object GuestNotificationHook {
     private var installed = false
 
     /**
-     * Set while [HostNotificationMirror] is posting JCode's own copy of a guest's notification.
-     *
-     * Without it the mirror's calls would be caught by this very hook and fed straight back into the
-     * device they came from — a loop, and no notification on the phone. A thread local rather than a
-     * flag because a guest can post from any thread while the mirror is working on the main one.
-     */
-    private val delivering = ThreadLocal.withInitial { false }
-
-    /** Runs [block]'s notification calls as JCode's, past this hook. */
-    fun <T> asHost(block: () -> T): T {
-        delivering.set(true)
-        return try {
-            block()
-        } finally {
-            delivering.set(false)
-        }
-    }
-
-    /**
      * Replaces the process-wide `INotificationManager`. False when the platform will not give it up,
      * in which case a guest's notifications go to the phone's shade as they did before.
      */
@@ -83,7 +64,7 @@ internal object GuestNotificationHook {
 
         override fun invoke(proxy: Any?, method: Method, args: Array<Any?>?): Any? {
             val guest = GuestRuntime.activePackage()
-            if (guest != null && !delivering.get()) {
+            if (guest != null) {
                 answer(guest, method, args ?: emptyArray())?.let { return it.value }
             }
             return try {

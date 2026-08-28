@@ -748,7 +748,6 @@ internal class VirtualStatusBar(context: Context) : FrameLayout(context) {
         const val WRAP = ViewGroup.LayoutParams.WRAP_CONTENT
 
         const val BAR_DP = 22f
-        const val TEXT_DP = 11f
         const val GRAB_DP = 30f
 
         /**

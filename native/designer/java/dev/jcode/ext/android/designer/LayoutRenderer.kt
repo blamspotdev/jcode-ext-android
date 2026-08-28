@@ -218,9 +218,6 @@ internal class LayoutRenderer(
         target.foreground = BoundsDrawable(strokeDensity * 2f, color)
     }
 
-    /** True when this element is drawn as itself rather than as a placeholder. */
-    fun isReal(element: DesignElement): Boolean = views[element] !is PlaceholderView
-
     private fun applyCommon(element: DesignElement, view: View) {
         element.attributes.forEach { attr ->
             if (attr.prefix == "tools") return@forEach

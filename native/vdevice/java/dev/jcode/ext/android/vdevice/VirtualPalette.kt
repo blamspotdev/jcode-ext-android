@@ -31,9 +31,6 @@ internal object VirtualPalette {
     /** A raised element on a surface: a key, an icon chip, a pill. */
     const val CHIP = 0xFF1E2733.toInt()
 
-    /** A hairline. Depth comes from tone rather than from shadows a dark theme cannot show. */
-    const val OUTLINE = 0xFF232C3A.toInt()
-
     const val TEXT = 0xFFE8ECF4.toInt()
     const val MUTED = 0xFF97A2B6.toInt()
     const val ACCENT = 0xFF8AB4F8.toInt()
