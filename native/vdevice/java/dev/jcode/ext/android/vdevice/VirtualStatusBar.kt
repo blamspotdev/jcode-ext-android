@@ -14,6 +14,7 @@ import android.view.ViewGroup
 import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.LinearLayout
+import android.widget.ScrollView
 import android.widget.Space
 import android.widget.TextView
 import dev.jcode.ext.android.R
@@ -130,6 +131,38 @@ internal class VirtualStatusBar(context: Context) : FrameLayout(context) {
         orientation = LinearLayout.VERTICAL
     }
 
+    /**
+     * The empty screen below the last notification, and the way out of the shade.
+     *
+     * A phone's shade covers everything, so there is no "outside" left to tap — what closes it is
+     * the empty part of the panel itself. This is that part: it takes whatever height the
+     * notifications leave and puts the shade away when it is pressed.
+     */
+    private val filler = View(context).apply {
+        isClickable = true
+        setOnClickListener { collapse() }
+    }
+
+    /**
+     * The notifications, in a scroller, because there can be more of them than the screen.
+     *
+     * `fillViewport` is what lets [filler] have a weight inside it: without it a `ScrollView` gives
+     * its child exactly the height the child asks for, and a weight against an unbounded height is
+     * nothing.
+     */
+    private val shadeScroll = ScrollView(context).apply {
+        isFillViewport = true
+        overScrollMode = OVER_SCROLL_NEVER
+        addView(
+            LinearLayout(context).apply {
+                orientation = LinearLayout.VERTICAL
+                addView(shadeList, LinearLayout.LayoutParams(MATCH, WRAP))
+                addView(filler, LinearLayout.LayoutParams(MATCH, 0, 1f))
+            },
+            LayoutParams(MATCH, WRAP),
+        )
+    }
+
     private val clearAll = TextView(context).apply {
         text = "Clear all"
         setTextColor(ACCENT)
@@ -145,16 +178,21 @@ internal class VirtualStatusBar(context: Context) : FrameLayout(context) {
     private val shade = LinearLayout(context).apply {
         id = R.id.vdevice_shade
         orientation = LinearLayout.VERTICAL
-        background = GradientDrawable().apply {
-            setColor(SHADE_BACKGROUND)
-            cornerRadii = floatArrayOf(0f, 0f, 0f, 0f, dp(14f).toFloat(), dp(14f).toFloat(), dp(14f).toFloat(), dp(14f).toFloat())
-        }
+        // Square, and opaque. It used to be a rounded card that stopped under the last notification,
+        // which is what a *dropdown* looks like — a phone's shade is the screen while it is open, and
+        // rounded corners at full extension would have shown two triangles of the app in the bottom
+        // corners.
+        setBackgroundColor(SHADE_BACKGROUND)
         visibility = GONE
+        // Below the navigation bar's strip, which draws over this one: a "Clear all" under the Back
+        // button is a button nobody can press. The status bar above is the other way round — it
+        // stays visible over the shade, as on a phone.
+        setPadding(0, 0, 0, dp(VirtualNavigationBar.BAR_DP))
         // Quick actions above the notifications, which is where a phone puts them and which is also
         // the order they are wanted in: the tiles are reachable after a short pull, and reading a
         // notification is what the rest of the pull is for.
         addView(quickActions, LayoutParams(MATCH, WRAP))
-        addView(shadeList, LayoutParams(MATCH, WRAP))
+        addView(shadeScroll, LinearLayout.LayoutParams(MATCH, 0, 1f))
         addView(clearAll, LayoutParams(MATCH, WRAP))
     }
 
@@ -282,6 +320,10 @@ internal class VirtualStatusBar(context: Context) : FrameLayout(context) {
         refreshRadios()
 
         shadeList.removeAllViews()
+        // Nothing to clear, so nothing offering to. A phone shows the button only when the list has
+        // something in it, and on a full-height panel an always-present button at the bottom of an
+        // empty screen reads as a control for the screen rather than for the list.
+        clearAll.visibility = if (posted.isEmpty()) GONE else VISIBLE
         if (posted.isEmpty()) {
             shadeList.addView(row(null, "No notifications", "", emptyList(), dim = true))
         } else {
@@ -565,24 +607,16 @@ internal class VirtualStatusBar(context: Context) : FrameLayout(context) {
     }
 
     /**
-     * How tall the shade wants to be, measured rather than remembered.
+     * How far the shade opens: the rest of the screen, under the strip.
      *
-     * Its content changes under it — a notification arrives, a card is thrown away — so a height
-     * cached at open time would be the height of a different shade by the time the finger lifts.
+     * It used to be however tall its contents measured, so a device with one notification opened a
+     * short card and a device with none opened almost nothing — the panel's size announced how much
+     * was in it before you could read any of it. A phone's shade is the same size every time,
+     * because it is the screen; what changes is how much of it has anything in it.
      */
-    private fun fullShadeHeight(): Int {
-        val width = width.takeIf { it > 0 } ?: return 0
-        shade.measure(
-            MeasureSpec.makeMeasureSpec(width, MeasureSpec.EXACTLY),
-            MeasureSpec.makeMeasureSpec(0, MeasureSpec.UNSPECIFIED),
-        )
-        return shade.measuredHeight
-    }
+    private fun fullShadeHeight(): Int = (height - dp(BAR_DP)).coerceAtLeast(0)
 
     private fun shadeHeight(): Int = shade.layoutParams?.height?.takeIf { it >= 0 } ?: 0
-
-    /** The bottom edge of what is actually drawn — the strip plus however far the shade is pulled. */
-    private fun panelBottom(): Int = dp(BAR_DP) + shadeHeight()
 
     /** Notes where the pane is and how far it may go, so the drag has fixed ends to work between. */
     private fun beginDrag() {
@@ -682,12 +716,11 @@ internal class VirtualStatusBar(context: Context) : FrameLayout(context) {
                     // Past a third of the way is a commitment; short of it the finger changed its
                     // mind, and either way the pane finishes the journey rather than jumping.
                     settle(if (shadeHeight() > dragTo / 3) dragTo else 0)
-                } else if (isOpen && event.y > panelBottom()) {
-                    // A press that was not a drag, landing past the bottom of the panel: that is
-                    // somebody reaching for the app behind an open shade, and on a phone it puts the
-                    // shade away. Measured against the *panel* rather than the grab strip, because
-                    // the strip's edge is inside the shade — tapping a notification's own card would
-                    // otherwise dismiss the thing being read.
+                } else if (isOpen) {
+                    // A press that was not a drag and that nothing in the shade wanted. There is no
+                    // "outside the panel" to test for any more — the panel is the screen — so what
+                    // decides is whether anything in it consumed the press: a card, a tile and Clear
+                    // all all do, and a press that reaches here landed on none of them.
                     collapse()
                 }
                 dragging = false
