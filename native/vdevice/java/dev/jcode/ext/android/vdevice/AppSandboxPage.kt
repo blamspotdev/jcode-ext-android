@@ -8,6 +8,7 @@ import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.BoxScope
@@ -69,14 +70,17 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.blamspot.jcode.core.distro.WorkspaceHostPaths
+import dev.blamspot.jcode.ext.api.NativeHost
 import dev.blamspot.jcode.design.IconSize
 import dev.blamspot.jcode.design.Space
+import dev.blamspot.jcode.design.Radius
 import dev.blamspot.jcode.design.CompactFilledButton
 import dev.blamspot.jcode.design.CompactOutlinedButton
 import dev.blamspot.jcode.design.ContextAction
@@ -97,6 +101,10 @@ import kotlinx.coroutines.withContext
  * not covered while it is being watched.
  */
 private const val TOOLBAR_IDLE_COLLAPSE_MS = 4_000L
+
+/** How many times the pack's settings are asked for before the device gives up and uses its own default. */
+private const val SETTINGS_READ_ATTEMPTS = 6
+private const val SETTINGS_READ_RETRY_MS = 400L
 
 /** The collapsed handle: a fifth of the device's width, sized like a sheet grabber. */
 private const val HANDLE_WIDTH_FRACTION = 0.2f
@@ -122,7 +130,16 @@ private val HANDLE_TOUCH_HEIGHT = 24.dp
  * control bar for as long as that guest is up.
  */
 @Composable
-internal fun AppSandboxPage(onSnackbar: (String) -> Unit, modifier: Modifier = Modifier) {
+internal fun AppSandboxPage(
+    onSnackbar: (String) -> Unit,
+    /**
+     * The workbench, for the pack's own settings. Null where the page is drawn without one — the
+     * device then opens on whatever it was already showing, which is the same answer the setting's
+     * own default gives.
+     */
+    host: NativeHost? = null,
+    modifier: Modifier = Modifier,
+) {
     val context = LocalContext.current
     val view = LocalView.current
     val session = remember { AppSandbox.session(context) }
@@ -144,6 +161,39 @@ internal fun AppSandboxPage(onSnackbar: (String) -> Unit, modifier: Modifier = M
     val surface by session.surface.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
 
+    // The pack's `defaultDeviceScreen` setting, read once and applied only while nobody has picked a
+    // screen for this device — see VirtualScreenOptions.applyDefault. `config()` suspends, so it
+    // cannot be read where the profile is used.
+    LaunchedEffect(host) {
+        val workbench = host ?: return@LaunchedEffect
+        // Retried, because the answer is not available the moment this page composes: `config.all`
+        // is resolved against the workbench's list of installed extensions, and the device tab can
+        // be on screen before that list has loaded — the first read comes back empty rather than
+        // wrong. Bounded, and it stops as soon as there is an answer.
+        repeat(SETTINGS_READ_ATTEMPTS) { attempt ->
+            val config = runCatching { workbench.config() }.getOrNull().orEmpty()
+            if (config.isNotEmpty()) {
+                VirtualScreenOptions.applyDefault(config[VirtualScreenOptions.DEFAULT_SETTING_KEY])
+                return@LaunchedEffect
+            }
+            if (attempt < SETTINGS_READ_ATTEMPTS - 1) delay(SETTINGS_READ_RETRY_MS)
+        }
+    }
+
+    // A change made while the device is open should reach it, not wait for the next one.
+    DisposableEffect(host) {
+        val handle = host?.onEvent { name, _ ->
+            if (name == "config") {
+                scope.launch {
+                    runCatching { host.config()[VirtualScreenOptions.DEFAULT_SETTING_KEY] }
+                        .getOrNull()
+                        ?.let(VirtualScreenOptions::applyDefault)
+                }
+            }
+        }
+        onDispose { runCatching { handle?.close() } }
+    }
+
     // The device's launcher lives on the surface, not in this composition — see VirtualLauncher. All
     // that is left here is reading what is installed and handing it over, and hosting the one menu
     // that is JCode's rather than the device's.
@@ -152,6 +202,8 @@ internal fun AppSandboxPage(onSnackbar: (String) -> Unit, modifier: Modifier = M
     var menuFor by remember { mutableStateOf<Pair<VirtualDeviceApp, Offset>?>(null) }
     var detailsFor by remember { mutableStateOf<VirtualDeviceApp?>(null) }
     var permissionsFor by remember { mutableStateOf<VirtualDeviceApp?>(null) }
+    /** The home screen's task view — the device is not running anything, so this is Compose's. */
+    var homeTasksOpen by remember { mutableStateOf(false) }
     LaunchedEffect(revision, running) {
         home = if (running) null else withContext(Dispatchers.IO) { VirtualLauncher.load(context) }
     }
@@ -231,6 +283,12 @@ internal fun AppSandboxPage(onSnackbar: (String) -> Unit, modifier: Modifier = M
     LaunchedEffect(surfaceView) {
         surfaceView?.onLaunchApp = { open(it) }
         surfaceView?.onAppMenu = { app, x, y -> menuFor = app to Offset(x, y) }
+        // The home screen's own navigation bar. Back and Home are inert here for the reason they are
+        // on a phone's launcher — there is nothing behind it and it IS home — and Recents opens the
+        // same list the running device's task view shows.
+        surfaceView?.onNavButton = { button ->
+            if (button == NavGlyphs.Button.Recents) homeTasksOpen = !homeTasksOpen
+        }
     }
 
     Box(modifier) {
@@ -252,6 +310,21 @@ internal fun AppSandboxPage(onSnackbar: (String) -> Unit, modifier: Modifier = M
 
         // Held over the icon that was long-pressed. A menu is JCode's, not the device's, so it is
         // composed here rather than drawn onto the screen a capture reads.
+        // The home screen's task view. A Compose sheet rather than the running device's
+        // VirtualTaskView, because that one is a view inside the guest's container and with nothing
+        // running there is no container — see VirtualNavigationBar for the pair.
+        if (homeTasksOpen && !running) {
+            val recents = remember(revision, homeTasksOpen) { VirtualTasks.list(context) }
+            HomeTaskView(
+                tasks = recents,
+                onOpen = { app ->
+                    homeTasksOpen = false
+                    open(app)
+                },
+                onClose = { homeTasksOpen = false },
+            )
+        }
+
         menuFor?.let { (app, at) ->
             val density = LocalDensity.current
             CompactContextMenu(
@@ -518,6 +591,68 @@ private fun HomeChrome(
             // Reachable with nothing running, because a route or an attitude is usually set up
             // *before* the app that is meant to react to it is opened.
             CompactOutlinedButton(text = "Hardware", onClick = onHardware)
+        }
+    }
+}
+
+/**
+ * What the home screen's Recents button opens: the apps this device has actually run.
+ *
+ * Deliberately the same list the running device's task view shows — [VirtualTasks] is the one
+ * record — so pressing Recents means the same thing whether or not an app is on the screen. Drawn in
+ * Compose rather than onto the surface because it is transient chrome the launcher's own capture
+ * should not bake in.
+ */
+@Composable
+private fun HomeTaskView(
+    tasks: List<LauncherApp>,
+    onOpen: (VirtualDeviceApp) -> Unit,
+    onClose: () -> Unit,
+) {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color.Black.copy(alpha = 0.82f))
+            .clickable(onClickLabel = "Close the task view", onClick = onClose),
+        contentAlignment = Alignment.Center,
+    ) {
+        if (tasks.isEmpty()) {
+            ScreenMessage("No recent apps")
+            return@Box
+        }
+        Row(
+            modifier = Modifier.horizontalScroll(rememberScrollState()).padding(Space.md),
+            horizontalArrangement = Arrangement.spacedBy(Space.sm),
+        ) {
+            tasks.forEach { entry ->
+                Column(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(Radius.md))
+                        .background(MaterialTheme.colorScheme.surfaceVariant)
+                        .clickable { onOpen(entry.app) }
+                        .padding(Space.sm),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    entry.icon?.let { icon ->
+                        // An ImageView rather than a Compose painter: the icon is an APK's own
+                        // Drawable, and Compose has no first-party way to paint one without
+                        // Accompanist, which this pack does not bundle.
+                        AndroidView(
+                            factory = { context -> android.widget.ImageView(context) },
+                            update = { view -> view.setImageDrawable(icon) },
+                            modifier = Modifier.size(44.dp),
+                        )
+                    }
+                    Text(
+                        text = entry.app.label,
+                        style = MaterialTheme.typography.labelMedium,
+                        color = Color.White,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.widthIn(max = 96.dp).padding(top = Space.xs),
+                    )
+                }
+            }
         }
     }
 }

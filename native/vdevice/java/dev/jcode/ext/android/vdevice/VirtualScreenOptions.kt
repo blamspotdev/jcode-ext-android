@@ -16,6 +16,13 @@ import kotlin.math.roundToInt
  * one while believing you tested the other is exactly the class of bug this feature exists to find.
  */
 internal data class DeviceProfile(
+    /**
+     * The value the manifest's `defaultDeviceScreen` setting uses for this profile.
+     *
+     * Separate from [label] and deliberately: the label is prose and may be reworded, while this is
+     * written into the user's settings and has to keep meaning the same thing.
+     */
+    val key: String,
     val label: String,
     val widthDp: Int?,
     val heightDp: Int?,
@@ -68,12 +75,15 @@ internal object VirtualScreenOptions {
      * the behaviour the device had before this existed.
      */
     val PROFILES: List<DeviceProfile> = listOf(
-        DeviceProfile("Fit the tab", null, null, null),
-        DeviceProfile("Phone", 411, 891, 420),
-        DeviceProfile("Phone (small)", 360, 640, 320),
-        DeviceProfile("Foldable", 673, 841, 420),
-        DeviceProfile("Tablet", 800, 1280, 320),
+        DeviceProfile("fit", "Fit the tab", null, null, null),
+        DeviceProfile("phone", "Phone", 411, 891, 420),
+        DeviceProfile("phone-small", "Phone (small)", 360, 640, 320),
+        DeviceProfile("foldable", "Foldable", 673, 841, 420),
+        DeviceProfile("tablet", "Tablet", 800, 1280, 320),
     )
+
+    /** The manifest setting that says which profile a device opens on. */
+    const val DEFAULT_SETTING_KEY = "defaultDeviceScreen"
 
     val profile = mutableStateOf(PROFILES.first())
 
@@ -83,7 +93,25 @@ internal object VirtualScreenOptions {
     /** True while the device is showing something other than the tab's own shape. */
     val isOverridden: Boolean get() = !profile.value.isNative
 
+    /**
+     * Apply the user's `defaultDeviceScreen` setting, once per session.
+     *
+     * Only while the profile is untouched: the control bar's picker is for *this* device, and a
+     * setting read arriving after somebody chose something would take their choice away. An
+     * unrecognised key is ignored rather than reset, so a setting written by a newer pack does not
+     * silently become "Fit the tab" on an older one.
+     */
+    @Synchronized
+    fun applyDefault(key: String?) {
+        if (chosen || key.isNullOrBlank()) return
+        PROFILES.firstOrNull { it.key == key }?.let { profile.value = it }
+    }
+
+    /** Whether somebody has picked a profile for this device, as opposed to inheriting the setting. */
+    private var chosen = false
+
     fun select(next: DeviceProfile) {
+        chosen = true
         profile.value = next
         // A fixed profile that was left rotated from a previous one keeps its rotation; a native one
         // has nothing to rotate, so the flag would only be a switch that did nothing.

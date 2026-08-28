@@ -39,7 +39,7 @@ class AndroidPackExtension : JCodeNativeExtension, JCodeVirtualDevice {
     @Composable
     override fun Content(host: NativeHost, params: Map<String, String>) {
         when (params[JCodeNativeExtension.Params.VIEW]) {
-            VIEW_DEVICE -> AppSandboxPage(onSnackbar = host::snackbar)
+            VIEW_DEVICE -> AppSandboxPage(onSnackbar = host::snackbar, host = host)
             VIEW_HARDWARE -> VirtualHardwarePage()
             // No view named: the file-claim surface, which is the designer's.
             else -> designer.Content(host, params)

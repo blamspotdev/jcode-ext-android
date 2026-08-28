@@ -57,6 +57,29 @@ android {
         jvmTarget = "21"
     }
 
+    /**
+     * Two halves, two directories.
+     *
+     * `designer/` and `vdevice/` have nothing to do with each other except the archive that ships
+     * them, and burying that split inside one `src/main/java` package tree hid it. They are source
+     * roots of ONE module rather than two modules because JCode allows one `entry.native` per
+     * extension: two modules would build two archives and only one could be declared.
+     *
+     * `src/main` keeps what belongs to neither — the manifest and the entry class that dispatches
+     * between them.
+     */
+    sourceSets {
+        getByName("main") {
+            java.srcDirs("src/main/java", "designer/java", "vdevice/java")
+            aidl.srcDirs("vdevice/aidl")
+            res.srcDirs("vdevice/res")
+            assets.srcDirs("vdevice/assets")
+        }
+        getByName("test") {
+            java.srcDirs("designer/test/java")
+        }
+    }
+
     buildFeatures {
         compose = true
         // The wire between the pack's IDE half and its `:guest` half. Both ends are this pack's, so

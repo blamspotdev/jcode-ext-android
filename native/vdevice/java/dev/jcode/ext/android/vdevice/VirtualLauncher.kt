@@ -72,6 +72,8 @@ internal object VirtualLauncher {
      */
     fun tiles(width: Int, height: Int, density: Float, apps: List<LauncherApp>): List<LauncherTile> {
         if (apps.isEmpty() || width <= 0 || height <= 0) return emptyList()
+        @Suppress("NAME_SHADOWING")
+        val height = (height - NavGlyphs.barHeight(density)).toInt().coerceAtLeast(1)
         val padding = PADDING_DP * density
         val gap = CELL_GAP_DP * density
         val available = width - padding * 2
@@ -98,6 +100,15 @@ internal object VirtualLauncher {
     }
 
     /** The app whose tile contains ([x], [y]), or null for a tap on the wallpaper. */
+    /**
+     * Which navigation button a tap on the home screen landed on, or null for anywhere else.
+     *
+     * Resolved against the very rectangle [NavGlyphs.drawBar] painted, so an agent reading a capture
+     * and a finger on the glass reach the same button.
+     */
+    fun navHit(width: Int, height: Int, density: Float, x: Float, y: Float): NavGlyphs.Button? =
+        NavGlyphs.hit(width, height, density, x, y)
+
     fun hit(
         width: Int,
         height: Int,
@@ -171,6 +182,10 @@ internal object VirtualLauncher {
         VirtualWallpaper.draw(canvas, width, height)
         if (width <= 0 || height <= 0) return
         drawStatusBar(canvas, width, density)
+        // The device has a navigation bar on its home screen too, for the same reason it has a status
+        // bar there: a device whose chrome appeared only once an app was running would look like two
+        // different devices, and `screencap` of the launcher would not show what a finger can press.
+        NavGlyphs.drawBar(canvas, width, height, density)
 
         if (apps.isEmpty()) {
             // Said on the device's own screen, so a capture of an empty device reads as empty rather
@@ -180,7 +195,7 @@ internal object VirtualLauncher {
             canvas.drawText(
                 PLACEHOLDER,
                 width / 2f,
-                height / 2f - (metrics.ascent + metrics.descent) / 2f,
+                (height - NavGlyphs.barHeight(density)) / 2f - (metrics.ascent + metrics.descent) / 2f,
                 placeholder,
             )
             return

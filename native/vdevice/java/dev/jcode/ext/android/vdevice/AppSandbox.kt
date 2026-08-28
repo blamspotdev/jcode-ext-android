@@ -70,7 +70,12 @@ internal object AppSandbox {
      */
     fun attach(host: VirtualDeviceHost, context: Context) {
         workbench = host
-        appContext = context.applicationContext
+        // NOT `.applicationContext`: that unwraps back to JCode's own context and throws away the
+        // AssetManager this pack's archive is attached to, which is where the device's built-in apps
+        // live. What arrives here already wraps the application context, so holding it leaks nothing.
+        appContext = context
+        // Where the device's built-in apps are read from; see VirtualDeviceApps.usePackAssets.
+        VirtualDeviceApps.usePackAssets(context)
         // Off the calling thread because it is a recursive delete, and before anything can install.
         CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
             runCatching { VirtualDeviceApps.resetOnStart(appContext) }
@@ -120,6 +125,16 @@ internal object AppSandbox {
                 this.activityClass.value = activityClass
             }
             if (run) running.value = true
+            // Recorded on this side too. VirtualTasks is an object, so the copy the container fills
+            // in lives in `:guest` and the home screen — which is drawn by the IDE, with no guest
+            // running — would read an empty list of its own. Off the main thread because naming the
+            // package means parsing the APK.
+            apkPath?.let { path ->
+                CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
+                    VirtualDevice.inspect(appContext, path).getOrNull()
+                        ?.let { VirtualTasks.ran(it.packageName) }
+                }
+            }
             // The tab is named for what is on it, and only the device knows that: a second request
             // can name a different app (`adb shell am start` does) and the tab is reused.
             workbench?.openDeviceTab(tabTitle())

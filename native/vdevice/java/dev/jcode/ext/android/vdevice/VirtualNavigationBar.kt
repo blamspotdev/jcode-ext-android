@@ -3,9 +3,6 @@ package dev.jcode.ext.android.vdevice
 import android.annotation.SuppressLint
 import android.content.Context
 import android.graphics.Canvas
-import android.graphics.Color
-import android.graphics.Paint
-import android.graphics.Path
 import android.util.TypedValue
 import android.view.Gravity
 import android.view.View
@@ -50,19 +47,19 @@ internal class VirtualNavigationBar(
     var hidden: Boolean = false
         private set
 
-    private val back = NavGlyph(context, NavGlyph.Kind.Back).apply {
+    private val back = NavGlyph(context, NavGlyphs.Button.Back).apply {
         id = R.id.vdevice_nav_back
         contentDescription = "Back"
         setOnClickListener { onBack() }
     }
 
-    private val home = NavGlyph(context, NavGlyph.Kind.Home).apply {
+    private val home = NavGlyph(context, NavGlyphs.Button.Home).apply {
         id = R.id.vdevice_nav_home
         contentDescription = "Home"
         setOnClickListener { onHome() }
     }
 
-    private val recents = NavGlyph(context, NavGlyph.Kind.Recents).apply {
+    private val recents = NavGlyph(context, NavGlyphs.Button.Recents).apply {
         id = R.id.vdevice_nav_recents
         contentDescription = "Task view"
         setOnClickListener { onRecents() }
@@ -72,7 +69,7 @@ internal class VirtualNavigationBar(
         id = R.id.vdevice_nav_bar
         orientation = LinearLayout.HORIZONTAL
         gravity = Gravity.CENTER
-        setBackgroundColor(BAR_BACKGROUND)
+        setBackgroundColor(NavGlyphs.BACKGROUND)
         // AOSP's order, left to right. The device mirrors Android rather than any one manufacturer's
         // rearrangement of it, so an app developer sees the arrangement the platform ships with.
         addView(back, weighted())
@@ -107,23 +104,7 @@ internal class VirtualNavigationBar(
      * square. Drawing them keeps them sharp at any density and keeps the pack from carrying three
      * more drawables whose only job is to be a triangle.
      */
-    private class NavGlyph(context: Context, private val kind: Kind) : View(context) {
-
-        enum class Kind { Back, Home, Recents }
-
-        private val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = FOREGROUND
-            style = Paint.Style.STROKE
-            strokeCap = Paint.Cap.ROUND
-            strokeJoin = Paint.Join.ROUND
-        }
-
-        private val fill = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = FOREGROUND
-            style = Paint.Style.FILL
-        }
-
-        private val path = Path()
+    private class NavGlyph(context: Context, private val button: NavGlyphs.Button) : View(context) {
 
         init {
             isClickable = true
@@ -148,45 +129,25 @@ internal class VirtualNavigationBar(
         }
 
         override fun onDraw(canvas: Canvas) {
-            val cx = width / 2f
-            val cy = height / 2f
-            val unit = minOf(width, height) * 0.22f
-            paint.strokeWidth = unit * 0.32f
-            when (kind) {
-                // A triangle pointing the way it takes you.
-                Kind.Back -> {
-                    path.reset()
-                    path.moveTo(cx + unit * 0.55f, cy - unit)
-                    path.lineTo(cx - unit * 0.75f, cy)
-                    path.lineTo(cx + unit * 0.55f, cy + unit)
-                    path.close()
-                    canvas.drawPath(path, fill)
-                }
-
-                Kind.Home -> canvas.drawCircle(cx, cy, unit * 0.85f, paint)
-
-                Kind.Recents -> {
-                    val half = unit * 0.75f
-                    canvas.drawRect(cx - half, cy - half, cx + half, cy + half, paint)
-                }
-            }
-        }
-
-        private companion object {
-            const val FOREGROUND = Color.WHITE
+            NavGlyphs.draw(
+                canvas = canvas,
+                button = button,
+                cx = width / 2f,
+                cy = height / 2f,
+                unit = minOf(width, height) * 0.22f,
+            )
         }
     }
 
     companion object {
         /**
-         * The bar's height in dp.
+         * The bar's height in dp — [NavGlyphs.BAR_DP], so the home screen's bar and this one are the
+         * same height and the device does not change shape when an app starts.
          *
          * A phone's three-button bar is 48dp. This one is shorter because the device is a tab on a
          * phone rather than the phone, and every dp it takes is one the app being tested does not
          * have — the same trade [VirtualStatusBar.BAR_DP] makes at the top.
          */
-        const val BAR_DP = 32f
-
-        private const val BAR_BACKGROUND = Color.BLACK
+        const val BAR_DP = NavGlyphs.BAR_DP
     }
 }

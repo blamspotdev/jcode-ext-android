@@ -92,12 +92,31 @@ internal object VirtualDeviceApps {
      * and it is on every device by default because the moment you want it is the moment something
      * looks wrong, which is not the moment to go and build an APK.
      */
+    /**
+     * A context whose `AssetManager` has THIS PACK's archive attached.
+     *
+     * The device's six built-in apps ship as assets inside the pack, and most callers here hand in
+     * whatever context they happen to hold — a page's, which is JCode's. Read through that,
+     * `assets.list` answers an empty array rather than failing, so the device came up with nothing
+     * installed and nothing logged. Set once, at attach.
+     */
+    @Volatile
+    private var packAssets: Context? = null
+
+    fun usePackAssets(context: Context) {
+        packAssets = context
+    }
+
     private fun installBuiltIns(context: Context) {
-        val assets = runCatching { context.assets.list(BUILT_INS).orEmpty() }.getOrDefault(emptyArray())
+        val source = packAssets ?: context
+        val assets = runCatching { source.assets.list(BUILT_INS).orEmpty() }.getOrDefault(emptyArray())
+        if (assets.isEmpty()) {
+            Log.w(TAG, "no built-in apps in $BUILT_INS/ — the pack's assets are not reachable")
+        }
         assets.filter { it.endsWith(APK) }.forEach { name ->
             runCatching {
                 val staged = staging(context)
-                context.assets.open("$BUILT_INS/$name").use { input ->
+                source.assets.open("$BUILT_INS/$name").use { input ->
                     staged.outputStream().use { input.copyTo(it) }
                 }
                 install(context, staged).getOrThrow()

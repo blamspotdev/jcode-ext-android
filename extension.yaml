@@ -8,6 +8,13 @@ description: Android XML + Gradle language support, a layout designer, the virtu
 # A combined Android dev pack. Kotlin coloring/completion/formatting come from the
 # required Kotlin Dev Pack (jcode.lang.kotlin); this pack adds Android XML +
 # Gradle languages and declares an Android app project template.
+# The device reads its own `defaultDeviceScreen` setting through the extension API, and every family
+# on that API is gated on being declared here — an undeclared `config` is refused with "capability
+# 'config' is not declared", which is a silent empty map on the reading side.
+api:
+  minApiVersion: 1
+  capabilities: [config]
+
 requires:
   # The Kotlin Dev Pack requires the Kotlin LSP itself, so Android gets it transitively. The Java
   # pack is here because Android is a JVM platform before it is a Kotlin one: the manifest, the
@@ -68,6 +75,18 @@ images:
   samples: []
   walkthrough: []
 settings:
+  - key: defaultDeviceScreen
+    label: Default vDevice screen size
+    type: enum
+    default: fit
+    options: [fit, phone, phone-small, foldable, tablet]
+    description: >-
+      Which screen the virtual device pretends to be when it opens. `fit` is the tab's own shape,
+      which is what the device did before there was anything to choose; the rest are real screens —
+      picking one rewrites the guest's DisplayMetrics and Configuration, so its resource qualifiers
+      reselect and an app laid out for a small phone genuinely reflows. The device's own control bar
+      switches between them for the session; this is where the session starts.
+
   - key: openLayoutsInDesigner
     label: Open layouts in the designer
     type: boolean

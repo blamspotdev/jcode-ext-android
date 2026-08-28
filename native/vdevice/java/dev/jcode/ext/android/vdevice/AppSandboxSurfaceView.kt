@@ -43,6 +43,15 @@ internal class AppSandboxSurfaceView(
     var onLaunchApp: (VirtualDeviceApp) -> Unit = {}
     var onAppMenu: (VirtualDeviceApp, Float, Float) -> Unit = { _, _, _ -> }
 
+    /**
+     * A press on the home screen's own navigation bar.
+     *
+     * The bar is painted onto this surface by [VirtualLauncher] rather than being a view, because
+     * with no guest there is no container to hang one on — so the tap has to be resolved here,
+     * against the same rectangle that was drawn.
+     */
+    var onNavButton: (NavGlyphs.Button) -> Unit = {}
+
     private var pressed: VirtualDeviceApp? = null
     private var pressedAt = 0f to 0f
     private val longPress = Runnable {
@@ -124,6 +133,19 @@ internal class AppSandboxSurfaceView(
             MotionEvent.ACTION_UP -> {
                 val app = pressed
                 cancelPress()
+                // The navigation bar first: it is drawn over the same surface, below the grid, so a
+                // press down there is never an icon.
+                val nav = VirtualLauncher.navHit(
+                    width,
+                    height,
+                    resources.displayMetrics.density,
+                    event.x,
+                    event.y,
+                )
+                if (nav != null) {
+                    onNavButton(nav)
+                    return
+                }
                 app?.takeIf { hit(event.x, event.y) == it }?.let(onLaunchApp)
             }
 
