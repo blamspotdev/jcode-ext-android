@@ -573,9 +573,9 @@ internal class EmbeddedGuest(
         val nav = navigationBar ?: VirtualNavigationBar(
             context = context,
             onBack = ::back,
-            // Home is what the device's own Home key means: the app goes away and the launcher comes
-            // back. It is `requestStop`, not a launcher activity, because the launcher is painted
-            // onto the tab's surface rather than being an app that can be started.
+            // Home starts the launcher, which IS an app now — so Home means on this device what it
+            // means on a phone: the home screen comes to the front. It goes out to the IDE because
+            // starting an app is the session's to do, not the container's.
             onHome = onHome,
             onRecents = { taskView?.toggle() },
         ).also { navigationBar = it }
@@ -736,6 +736,20 @@ internal class EmbeddedGuest(
             (height - top - bottom).coerceAtLeast(1),
             densityDpi,
         )
+        // And TELL them. `Resources.updateConfiguration` rewrites what an activity would read if it
+        // asked again; it dispatches nothing, so an app that reacts to a size change rather than
+        // re-reading on every draw never hears about one. Everything laid out in `onCreate` against
+        // the screen it had then stays that way: measured, the device's own launcher counted its
+        // columns for a 731dp screen, kept them after the device became a 411dp phone, and packed
+        // six apps into a row meant for eight.
+        //
+        // The whole stack, not just what is in front. A paused activity is resumed later without
+        // being recreated — `configChanges` says so — and would otherwise come back laid out for a
+        // device that no longer exists.
+        stack.forEach { hosted ->
+            runCatching { hosted.onConfigurationChanged(hosted.resources.configuration) }
+                .onFailure { Log.w(TAG, "${hosted.javaClass.name} refused a configuration change", it) }
+        }
         stack.forEach { hosted ->
             val decor = hosted.window.decorView
             (decor.layoutParams as? FrameLayout.LayoutParams)?.let { params ->

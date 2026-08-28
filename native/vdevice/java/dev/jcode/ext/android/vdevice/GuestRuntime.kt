@@ -117,7 +117,7 @@ internal object GuestRuntime {
         // caches its binder, so the replacement has to be in place before the first guest context.
         val network = GuestNetwork.install(host)
         val navigation = GuestHooks.installStartActivityHook(::rewriteOutgoing)
-        val packages = GuestPackageHook.install(host.packageManager)
+        val packages = GuestPackageHook.install(host, host.packageManager)
         val notifications = GuestNotificationHook.install()
         val intents = GuestActivityManagerHook.install(host.packageName)
         installCrashHandler()
@@ -378,6 +378,14 @@ internal object GuestRuntime {
         val apk = VirtualDeviceApps.apk(host, component.packageName) ?: return null
         val guest = runCatching { GuestLoader.load(host, apk.absolutePath) }.getOrNull() ?: return null
         return stubIntent(guest, component.className, Intent(intent))
+    }
+
+    /** One of the device's installed apps, loaded because an intent named it. */
+    private fun loadDeviceApp(packageName: String): LoadedGuest? {
+        val apk = VirtualDeviceApps.apk(host, packageName) ?: return null
+        return runCatching { GuestLoader.load(host, apk.absolutePath) }
+            .onFailure { Log.w(TAG, "cannot load $packageName for an explicit launch", it) }
+            .getOrNull()
     }
 
     /** [GuestActivityClient] calls this for the `onBackPressed` the platform routes to the server. */
@@ -726,6 +734,13 @@ internal object GuestRuntime {
         // own package must never reach the real system, and `active` is a moving target — the
         // component is the reliable statement of whose activity this is.
         val guest = component?.let { GuestLoader.forPackage(it.packageName) }
+            // Named explicitly but not loaded yet — which is every app the launcher starts, because
+            // a launcher starts apps BY COMPONENT and an app that has not run is not in the loader.
+            // Without this the component fell through to `active`, failed to match it, and the
+            // intent left the device: measured, tapping Browser on the home screen asked the PHONE
+            // to start `dev.blamspot.jcode.vdevice.browser`, which is installed on no phone.
+            // Implicit intents never hit this, because deviceAppFor loads on demand already.
+            ?: component?.let { loadDeviceApp(it.packageName) }
             ?: active
             ?: return StartAction.Proceed
         if (component == null) {

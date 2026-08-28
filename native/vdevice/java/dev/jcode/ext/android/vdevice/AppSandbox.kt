@@ -111,7 +111,32 @@ internal object AppSandbox {
      * `am start` on an IO dispatcher, so the write is marshalled the way `TerminalSessionHost`
      * marshals its OSC callbacks rather than trusting the calling thread.
      */
+    /**
+     * The device's home screen, as an installed app.
+     *
+     * Null only while the launcher is not installed — a device whose tree was emptied and not yet
+     * healed. Callers fall back to the container's own drawn home screen, which is what every device
+     * had before the launcher was an app.
+     */
+    private fun launcherApk(): String? = runCatching {
+        VirtualDeviceApps.apk(appContext, DeviceIntents.LAUNCHER_PACKAGE)?.absolutePath
+    }.getOrNull()
+
+    /** Take the device back to its home screen — the device's own Home key. */
+    fun requestHome() {
+        requestOpen(null, null, run = true)
+    }
+
     fun requestOpen(apkPath: String?, activityClass: String? = null, run: Boolean = false) {
+        // No APK named means "the device itself", which is now its launcher rather than a blank
+        // screen: the home screen is an app on this device like any other, so opening the device is
+        // starting that app. See DeviceIntents.LAUNCHER_PACKAGE.
+        @Suppress("NAME_SHADOWING")
+        val activityClass = if (apkPath == null) DeviceIntents.LAUNCHER_ACTIVITY else activityClass
+        @Suppress("NAME_SHADOWING")
+        val apkPath = apkPath ?: launcherApk()
+        @Suppress("NAME_SHADOWING")
+        val run = run || apkPath != null && activityClass == DeviceIntents.LAUNCHER_ACTIVITY
         val open = Runnable {
             // The activity only means anything next to the APK it belongs to, so the two move
             // together — a bare reveal leaves whatever the tab was already showing alone.
@@ -273,9 +298,9 @@ internal class AppSandboxSession(context: Context) {
             _status.value = SandboxStatus.Stopped(reason ?: "The app closed.")
         }
 
-        /** The device's Home button. Same landing place as the toolbar's Stop: a live, blank device. */
+        /** The device's Home button: its home screen, which is an app. */
         override fun onHome() {
-            AppSandbox.requestStop()
+            AppSandbox.requestHome()
         }
 
         /** A task-view card. `run` so the app starts rather than leaving the tab on its setup screen. */
@@ -304,6 +329,20 @@ internal class AppSandboxSession(context: Context) {
      * re-publishes its surface. Safe to call on every layout pass; it does nothing while a start is
      * already in flight.
      */
+    /**
+     * The size the tab last asked for, whether or not the container has caught up with it.
+     *
+     * The device used to rest with no guest at all, so the first `start` happened long after the
+     * tab had settled on a size. It rests on its launcher now, which is started the moment the tab
+     * opens — into whatever the first non-zero measurement happens to be, usually before the screen
+     * profile has been applied. The corrected size then arrived while `start` was still in flight
+     * and was dropped by the guard below, leaving the guest laid out for a screen the device does
+     * not have: measured, a launcher occupying the top third of the pane with the container's own
+     * home screen showing through underneath it.
+     */
+    @Volatile
+    private var wanted: Pair<Int, Int>? = null
+
     fun ensureStarted(
         apkPath: String,
         activityClass: String?,
@@ -311,13 +350,18 @@ internal class AppSandboxSession(context: Context) {
         height: Int,
         hostToken: IBinder?,
     ) {
+        if (width > 0 && height > 0) wanted = width to height
         if (startup?.isActive == true || width <= 0 || height <= 0) return
         if (_status.value is SandboxStatus.Running) {
             resize(width, height)
             startup = scope.launch { _surface.value = readSurface() }
             return
         }
-        startup = scope.launch { start(apkPath, activityClass, width, height, hostToken) }
+        startup = scope.launch {
+            start(apkPath, activityClass, width, height, hostToken)
+            // Whatever the tab asked for while this was starting, applied now that it can be.
+            wanted?.takeIf { it != width to height }?.let { (w, h) -> resize(w, h) }
+        }
     }
 
     fun restart(

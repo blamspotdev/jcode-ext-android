@@ -49,11 +49,19 @@ internal object GuestPackageHook {
     private var installed = false
 
     /**
+     * The container's context, for the questions that are about the DEVICE rather than about one
+     * guest — which app is on its home screen, and where each one's archive is.
+     */
+    @Volatile
+    private var host: android.content.Context? = null
+
+    /**
      * Replaces the process-wide `IPackageManager` proxy. Returns false when the platform will not
      * give it up, which costs a guest its own package metadata and leaves everything else working.
      */
     @Synchronized
-    fun install(hostPackageManager: PackageManager): Boolean {
+    fun install(context: android.content.Context, hostPackageManager: PackageManager): Boolean {
+        host = context
         if (installed) return true
         return try {
             val activityThread = HiddenApi.classOrNull("android.app.ActivityThread") ?: return false
@@ -216,6 +224,11 @@ internal object GuestPackageHook {
             val single = method.name == "resolveIntent"
             if (!single && method.name != "queryIntentActivities") return null
             val intent = args.filterIsInstance<Intent>().firstOrNull() ?: return null
+            // "What can this device launch?" — the question a home screen asks, and the one this
+            // hook could not answer. Every other query here resolves to ONE component, so a bare
+            // MAIN/LAUNCHER intent fell through to the phone's PackageManager and the device's own
+            // launcher would have listed the apps on the phone it is running inside.
+            if (!single && isLauncherQuery(intent)) return sliceOf(launchableApps())?.let { Box(it) }
             val component = DeviceIntents.resolve(intent) ?: return null
             val guest = GuestLoader.forPackage(component.packageName) ?: return null
             val info = ResolveInfo().apply {
@@ -223,6 +236,47 @@ internal object GuestPackageHook {
             }
             return if (single) Box(info) else sliceOf(info)?.let { Box(it) }
         }
+
+        /** A bare "everything on the home screen" query: MAIN + LAUNCHER, aimed at no component. */
+        private fun isLauncherQuery(intent: Intent): Boolean =
+            intent.action == Intent.ACTION_MAIN &&
+                intent.hasCategory(Intent.CATEGORY_LAUNCHER) &&
+                intent.component == null &&
+                intent.`package` == null
+
+        /**
+         * Every app on the device that has a home-screen entry, as the launcher wants them.
+         *
+         * Read from the archives rather than from loaded guests: [GuestLoader.launchActivityOf]
+         * parses each manifest without dex-loading the app, so opening the home screen costs a
+         * manifest scan per app rather than a full load of every app installed.
+         *
+         * `sourceDir` is pointed back at the APK on the way out, which is what lets the launcher
+         * resolve a label and an icon out of an archive that is not installed on this phone — the
+         * same trick [VirtualDevice.inspect] uses.
+         */
+        private fun launchableApps(): List<ResolveInfo> {
+            val context = host ?: return emptyList()
+            return runCatching {
+                VirtualDeviceApps.list(context).mapNotNull { app ->
+                    val launch = GuestLoader.launchActivityOf(app.apkPath, app.packageName)
+                        ?: return@mapNotNull null
+                    val archive = context.packageManager
+                        .getPackageArchiveInfo(app.apkPath, PackageManager.GET_ACTIVITIES)
+                        ?: return@mapNotNull null
+                    val activity = archive.activities.orEmpty().firstOrNull { it.name == launch }
+                        ?: return@mapNotNull null
+                    activity.applicationInfo?.apply {
+                        sourceDir = app.apkPath
+                        publicSourceDir = app.apkPath
+                    }
+                    ResolveInfo().apply { activityInfo = activity }
+                }
+            }.onFailure { Log.w(TAG, "cannot list the device's launchable apps", it) }
+                .getOrDefault(emptyList())
+        }
+
+        private fun sliceOf(infos: List<ResolveInfo>): Any? = slice(infos)
 
         /** `new ParceledListSlice<>(List)` — the shape `queryIntentActivities` returns over binder. */
         private fun sliceOf(info: ResolveInfo): Any? = slice(listOf(info))

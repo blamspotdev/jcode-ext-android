@@ -43,6 +43,7 @@ internal object DeviceIntents {
         FILES_PACKAGE,
         SETTINGS_PACKAGE,
         KeyboardApp.PACKAGE,
+        LAUNCHER_PACKAGE,
     )
 
     /**
@@ -175,6 +176,16 @@ internal object DeviceIntents {
 
     /** Whether the launcher should refuse to uninstall [packageName]. */
     fun isSystem(packageName: String): Boolean = packageName in SYSTEM_PACKAGES
+
+    /**
+     * The device's home screen, which is an app like any other on it.
+     *
+     * It declares HOME rather than LAUNCHER, so it does not appear on its own home screen and
+     * [GuestPackageHook] does not list it among what the device can launch. The container therefore
+     * starts it by name, which is what these two constants are for.
+     */
+    const val LAUNCHER_PACKAGE = "dev.blamspot.jcode.vdevice.launcher"
+    const val LAUNCHER_ACTIVITY = "dev.blamspot.jcode.vdevice.launcher.LauncherActivity"
 
     const val CAMERA_PACKAGE = "dev.blamspot.jcode.vdevice.camera"
     const val SETTINGS_PACKAGE = "dev.blamspot.jcode.vdevice.settings"

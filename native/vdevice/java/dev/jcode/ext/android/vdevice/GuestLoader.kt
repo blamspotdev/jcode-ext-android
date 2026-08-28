@@ -329,6 +329,32 @@ internal object GuestLoader {
     }
 
     /**
+     * The MAIN/LAUNCHER activity declared by [apkPath], **without loading the app**.
+     *
+     * The device's launcher has to name every installed app's entry point, and asking [load] for
+     * that would dex-load every APK on the device — its classes, its native libraries, its resource
+     * table — to draw a grid of icons. A 100 MB app would be paid for in full by a user who only
+     * looked at the home screen.
+     *
+     * This opens the archive's binary manifest and nothing else, and answers null for an APK that
+     * declares no launcher activity — which is a real answer: a library or a service-only APK
+     * belongs on no home screen.
+     */
+    fun launchActivityOf(apkPath: String, packageName: String): String? = runCatching {
+        val assets = newAssetManager()
+        try {
+            val cookie = addAssetPath(assets, apkPath) ?: return null
+            // The package name matters and is not decoration: a manifest may name its components
+            // relatively (`.LauncherActivity`), and the scan expands those against it. Passing
+            // anything else — the APK's path, say — silently produces a class name that matches no
+            // activity, and every app quietly drops off the home screen.
+            scanManifest(assets, cookie, packageName).launchActivity
+        } finally {
+            runCatching { assets.close() }
+        }
+    }.onFailure { Log.w(TAG, "cannot read the launch activity of $packageName", it) }.getOrNull()
+
+    /**
      * `AssetManager`'s no-arg constructor is hidden but yields an asset manager that already carries
      * the framework's own assets, so `addAssetPath` on top of it gives the guest working resources
      * without disturbing JCode's.

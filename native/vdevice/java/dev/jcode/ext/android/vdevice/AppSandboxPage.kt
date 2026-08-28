@@ -609,15 +609,18 @@ private fun DeviceScreen(
             }
         }
 
+        // Outside the `when`, and no longer conditional on nothing running. The device's resting
+        // state used to be a blank screen with no guest; it is the launcher app now, so a menu shown
+        // only while nothing ran would never be shown at all — and Install an app is only here.
+        HomeChrome(
+            onInstall = onInstall,
+            onHardware = { SimulatedHardware.requestOpen() },
+            modifier = Modifier.fillMaxSize(),
+        )
+
         when {
             // The home screen itself is on the surface, drawn by VirtualLauncher — only the chrome
             // that does not belong to the device is composed over it.
-            !running -> HomeChrome(
-                onInstall = onInstall,
-                onHardware = { SimulatedHardware.requestOpen() },
-                modifier = Modifier.fillMaxSize(),
-            )
-
             status is SandboxStatus.Starting || status is SandboxStatus.Idle ->
                 ScreenMessage("Starting the app…")
 
