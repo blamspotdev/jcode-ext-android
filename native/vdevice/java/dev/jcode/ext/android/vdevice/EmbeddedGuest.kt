@@ -570,9 +570,6 @@ internal class EmbeddedGuest(
         taskView?.let(container::removeView)
         val bar = statusBar ?: VirtualStatusBar(context)
             .also { statusBar = it }
-        // Full height, not as tall as the strip — see [VirtualStatusBar] for why a shade has to
-        // cover the screen it can be dismissed by tapping.
-        container.addView(bar, matchParent())
         val nav = navigationBar ?: VirtualNavigationBar(
             context = context,
             onBack = ::back,
@@ -590,13 +587,26 @@ internal class EmbeddedGuest(
                 taskView?.hide()
                 onOpenApp(app.apkPath)
             },
-            onDismiss = { app -> GuestRuntime.forceStop(app.packageName) },
+            onDismiss = { app ->
+                val wasRunning = app.packageName == GuestRuntime.activePackage()
+                GuestRuntime.forceStop(app.packageName)
+                // Force-stopping the app that is ON the screen is only half of closing it: the IDE
+                // still believes a guest is running, so the device went on showing the dead app's
+                // last frame and the card looked like it had done nothing. Closing the running task
+                // has to land where Home lands — a live, blank device — and only the IDE can put it
+                // there, so it goes out over the same callback Home does.
+                if (wasRunning) onHome()
+            },
         ).also { taskView = it }
-        // The task view goes UNDER the navigation bar, which is where a phone puts it: recents is a
-        // screen you leave by pressing Home or Recents again, and a scrim that covered those buttons
-        // would be a screen with no way out but the scrim itself. Added before the bar for that
-        // reason — the bar is last, so it stays pressable while recents is up.
+        // The task view goes UNDER the device's own bars, which is where a phone puts it: recents is
+        // a screen you leave by pressing Home or Recents again, and a scrim over those buttons would
+        // be a screen with no way out but the scrim itself. The status bar is above it for the same
+        // reason and for consistency — the clock and the radios do not stop being true because
+        // recents is open, and half the chrome dimmed while the other half was not read as a bug.
         container.addView(tasks, matchParent())
+        // Full height, not as tall as the strip — see [VirtualStatusBar] for why a shade has to
+        // cover the screen it can be dismissed by tapping.
+        container.addView(bar, matchParent())
         container.addView(nav, matchParent())
         keyboard?.raise()
         permission?.let { prompt ->

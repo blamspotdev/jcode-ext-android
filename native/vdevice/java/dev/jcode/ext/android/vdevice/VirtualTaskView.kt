@@ -83,7 +83,7 @@ internal class VirtualTaskView(
 
     private val cards = LinearLayout(context).apply {
         orientation = LinearLayout.HORIZONTAL
-        gravity = Gravity.CENTER_VERTICAL
+        gravity = Gravity.CENTER
         setPadding(dp(12f), 0, dp(12f), 0)
     }
 
@@ -105,9 +105,14 @@ internal class VirtualTaskView(
 
         addView(
             HorizontalScrollView(context).apply {
+                // Fills the viewport so the row can CENTRE itself: a WRAP-width row inside a scroll
+                // view is laid out from the left edge whatever its gravity says, and one card on a
+                // wide screen then sits in the corner looking like a mistake. With the row filling
+                // the viewport its own gravity is what places the cards, and a row too wide to fit
+                // still scrolls.
                 isFillViewport = true
                 clipToPadding = false
-                addView(cards, LayoutParams(WRAP, MATCH))
+                addView(cards, LayoutParams(MATCH, MATCH))
             },
             LayoutParams(MATCH, dp(CARD_HEIGHT_DP)).apply { gravity = Gravity.CENTER_VERTICAL },
         )
@@ -124,7 +129,10 @@ internal class VirtualTaskView(
         recent.forEach { cards.addView(card(it)) }
         empty.visibility = if (recent.isEmpty()) VISIBLE else GONE
         visibility = VISIBLE
-        bringToFront()
+        // NOT bringToFront(). The container adds this deliberately BELOW the device's status and
+        // navigation bars — recents is a screen you leave by pressing Home or Recents again, so a
+        // scrim over those buttons would be a screen with no way out but its own scrim. Raising
+        // itself here put it back over both of them and dimmed the chrome it must not cover.
     }
 
     fun hide() {
@@ -152,6 +160,12 @@ internal class VirtualTaskView(
             setTextColor(MUTED)
             textSize = 13f
             gravity = Gravity.CENTER
+            // Padded rather than stretched. This used to be MATCH_PARENT across the card's top edge,
+            // which made the whole strip above the icon a close button — a tap aimed at the app it
+            // labels threw the app away instead.
+            // Generous padding rather than a bigger glyph: this is the whole touch target, and a
+            // 13sp character on a pane scaled to a third of its size is a very small thing to hit.
+            setPadding(dp(14f), dp(6f), dp(10f), dp(10f))
             contentDescription = "Close ${app.label}"
             setOnClickListener {
                 VirtualTasks.forget(app.packageName)
@@ -170,7 +184,10 @@ internal class VirtualTaskView(
             contentDescription = app.label
             isClickable = true
             setOnClickListener { onOpen(app) }
-            addView(dismiss, LinearLayout.LayoutParams(MATCH, WRAP))
+            addView(
+                dismiss,
+                LinearLayout.LayoutParams(WRAP, WRAP).apply { gravity = Gravity.END },
+            )
             addView(
                 icon,
                 LinearLayout.LayoutParams(dp(40f), dp(40f)).apply { topMargin = dp(2f) },

@@ -451,6 +451,9 @@ private data class PaneLayout(
     val hasGutter: Boolean get() = sideGutterDp >= GUTTER_MIN_DP
 }
 
+/** The gutter column's icon size, and the width its divider is pinned to. */
+private const val GUTTER_ICON_DP = 34f
+
 /** Narrower than this and a gutter is a margin, not somewhere to put things. */
 private const val GUTTER_MIN_DP = 148f
 
@@ -945,8 +948,14 @@ private fun BoxScope.GutterControls(
                         tint = MaterialTheme.colorScheme.error,
                     )
                 }
+                // Width pinned to the buttons'. HorizontalDivider fills its parent by default, and
+                // in a Column whose constraints are the whole gutter that made the panel as wide as
+                // the empty space beside the device — a 400dp slab with six small icons adrift in
+                // it. Nothing else here has an opinion about width, so the divider was setting it.
                 HorizontalDivider(
-                    modifier = Modifier.padding(vertical = Space.xxs),
+                    modifier = Modifier
+                        .width(GUTTER_ICON_DP.dp)
+                        .padding(vertical = Space.xxs),
                     color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f),
                 )
                 ToolbarAction(Icons.Rounded.RestartAlt, "Restart app", onRestart)
