@@ -27,8 +27,10 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Check
+import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Keyboard
+import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.PhoneAndroid
 import androidx.compose.material.icons.rounded.RestartAlt
 import androidx.compose.material.icons.rounded.ScreenRotation
@@ -611,7 +613,6 @@ private fun DeviceScreen(
             // The home screen itself is on the surface, drawn by VirtualLauncher — only the chrome
             // that does not belong to the device is composed over it.
             !running -> HomeChrome(
-                pane = pane,
                 onInstall = onInstall,
                 onHardware = { SimulatedHardware.requestOpen() },
                 modifier = Modifier.fillMaxSize(),
@@ -643,40 +644,54 @@ private fun DeviceScreen(
  */
 @Composable
 private fun HomeChrome(
-    pane: PaneLayout,
     onInstall: () -> Unit,
     onHardware: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    var open by remember { mutableStateOf(false) }
     Box(modifier = modifier) {
-        if (pane.hasGutter) {
-            // Beside the device, not over it. A portrait device in a landscape tab leaves two empty
-            // columns, and these buttons laid out against the whole tab came down across the pane's
-            // own edges — over the app grid they are deliberately NOT part of.
-            // Against the device's edge, not adrift in the middle of the gutter: centred in a
-            // 400dp column these read as two buttons floating in empty space with no relationship to
-            // the thing they act on. An emulator puts its controls beside the device for the same
-            // reason.
-            Column(
-                modifier = Modifier
-                    .align(Alignment.CenterStart)
-                    .width(pane.sideGutterDp.dp)
-                    .padding(horizontal = Space.sm),
-                verticalArrangement = Arrangement.spacedBy(Space.sm),
-                horizontalAlignment = Alignment.End,
-            ) {
-                CompactOutlinedButton(text = "Install an app", onClick = onInstall)
-                CompactOutlinedButton(text = "Hardware", onClick = onHardware)
-            }
-        } else {
-            Row(
-                modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = Space.xl),
-                horizontalArrangement = Arrangement.spacedBy(Space.sm),
-            ) {
-                CompactOutlinedButton(text = "Install an app", onClick = onInstall)
+        // One menu in the corner rather than two buttons in the tab.
+        //
+        // As buttons these had nowhere good to be. Laid out against the whole tab they came down
+        // across the device; moved into the gutter they were two lozenges floating in empty space;
+        // and when the device fills the width there is no gutter to move them into. A corner
+        // affordance has the same place to be whatever shape the device is, which is the point —
+        // it costs the device's own screen nothing and stops moving around.
+        Box(modifier = Modifier.align(Alignment.TopEnd).padding(Space.xs)) {
+            // Named, not a trailing lambda: ToolbarAction's last parameter is `tint`, so a trailing
+            // block binds to the colour rather than to the click.
+            ToolbarAction(Icons.Rounded.MoreVert, "Device menu", onClick = { open = true })
+            DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+                DropdownMenuItem(
+                    text = { Text("Install an app") },
+                    leadingIcon = {
+                        Icon(
+                            Icons.Rounded.Add,
+                            contentDescription = null,
+                            modifier = Modifier.size(IconSize.md),
+                        )
+                    },
+                    onClick = {
+                        open = false
+                        onInstall()
+                    },
+                )
                 // Reachable with nothing running, because a route or an attitude is usually set up
                 // *before* the app that is meant to react to it is opened.
-                CompactOutlinedButton(text = "Hardware", onClick = onHardware)
+                DropdownMenuItem(
+                    text = { Text("Hardware") },
+                    leadingIcon = {
+                        Icon(
+                            Icons.Rounded.Tune,
+                            contentDescription = null,
+                            modifier = Modifier.size(IconSize.md),
+                        )
+                    },
+                    onClick = {
+                        open = false
+                        onHardware()
+                    },
+                )
             }
         }
     }
