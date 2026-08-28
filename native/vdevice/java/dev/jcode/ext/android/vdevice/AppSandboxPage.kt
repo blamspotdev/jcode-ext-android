@@ -240,6 +240,10 @@ internal fun AppSandboxPage(
     // Keyed on the profile as well as on the size, because the two are not the same key: a profile
     // change usually moves the pixel size and would be caught anyway, but a change of *density* at
     // the same size would not be, and that is a change the guest has to be told about.
+    // Whether the control bar is currently lying across the top of the tab, which is the one place
+    // the device menu also wants. See [HomeChrome].
+    var controlsOverTop by remember { mutableStateOf(false) }
+
     val screenProfile by VirtualScreenOptions.profile
     LaunchedEffect(size, running, apkPath, surfaceView, screenProfile) {
         if (running) {
@@ -311,6 +315,7 @@ internal fun AppSandboxPage(
             },
             onDismiss = { stop() },
             onInstall = { installOpen = true },
+            menuVisible = !controlsOverTop,
             modifier = Modifier.fillMaxSize(),
         )
 
@@ -413,11 +418,13 @@ internal fun AppSandboxPage(
             // the device — so with nothing running there is nothing for it to say.
             DeviceControls(
                 pane = pane,
+                onOverTop = { controlsOverTop = it },
                 caveat = (status as? SandboxStatus.Running)?.warning,
                 // The device's own keyboard, not the phone's. It is also the way out of the one
                 // bound the container has on noticing focus: a guest that moves it without any
                 // input is only caught on the next event — see EmbeddedGuest.followFocus.
                 onKeyboard = { scope.launch { session.ime("toggle") } },
+                onInstall = { installOpen = true },
                 onHardware = { SimulatedHardware.requestOpen() },
                 onRestart = {
                     session.restart(apkPath, activityClass, size.width, size.height, surfaceView?.hostToken())
@@ -513,6 +520,8 @@ private fun DeviceScreen(
     onRetry: () -> Unit,
     onDismiss: () -> Unit,
     onInstall: () -> Unit,
+    /** False while the control bar is covering the corner the device menu lives in. */
+    menuVisible: Boolean,
     modifier: Modifier = Modifier,
 ) {
     // The surround is the EDITOR's background, not the device's wallpaper. It used to be the
@@ -615,6 +624,12 @@ private fun DeviceScreen(
         HomeChrome(
             onInstall = onInstall,
             onHardware = { SimulatedHardware.requestOpen() },
+            // Not while the control bar is lying across the top of the tab. Both want the same
+            // corner and the bar is `fillMaxWidth`, so it wins by being drawn second — measured with
+            // JCode itself in portrait, where the device fills the width and leaves no gutter: the
+            // menu was there while the bar was collapsed and gone the moment it came back, which
+            // left Install an app reachable only by waiting four seconds for the bar to time out.
+            visible = menuVisible,
             modifier = Modifier.fillMaxSize(),
         )
 
@@ -649,9 +664,17 @@ private fun DeviceScreen(
 private fun HomeChrome(
     onInstall: () -> Unit,
     onHardware: () -> Unit,
+    /** False while something else owns the corner this lives in — see the call site. */
+    visible: Boolean = true,
     modifier: Modifier = Modifier,
 ) {
     var open by remember { mutableStateOf(false) }
+    // Not merely hidden: a menu left open under a bar that has just come back is a menu whose items
+    // cannot be reached and whose dismiss is somewhere else.
+    if (!visible) {
+        if (open) open = false
+        return
+    }
     Box(modifier = modifier) {
         // One menu in the corner rather than two buttons in the tab.
         //
@@ -822,8 +845,11 @@ private fun ScreenFallback(
 @Composable
 private fun BoxScope.DeviceControls(
     pane: PaneLayout,
+    /** Whether the bar is covering the top of the tab right now — see [HomeChrome]. */
+    onOverTop: (Boolean) -> Unit,
     caveat: String?,
     onKeyboard: () -> Unit,
+    onInstall: () -> Unit,
     onHardware: () -> Unit,
     onRestart: () -> Unit,
     onStop: () -> Unit,
@@ -833,6 +859,8 @@ private fun BoxScope.DeviceControls(
     // on it. That also takes the timer out of the way of its own menus.
     var caveatOpen by remember { mutableStateOf(false) }
     if (pane.hasGutter) {
+        // Beside the device, not over it, so nothing of the tab's own corner is covered.
+        LaunchedEffect(Unit) { onOverTop(false) }
         GutterControls(
             pane = pane,
             caveat = caveat,
@@ -849,6 +877,8 @@ private fun BoxScope.DeviceControls(
     }
 
     var expanded by remember { mutableStateOf(true) }
+    LaunchedEffect(expanded) { onOverTop(expanded) }
+    DisposableEffect(Unit) { onDispose { onOverTop(false) } }
     // The screen-options menu lives inside the bar's own composition, so collapsing the bar takes the
     // menu with it. Without this the bar timed out from under an open menu after four seconds and
     // every selection after that landed on the guest instead — the menu was gone before it was read.
@@ -894,6 +924,7 @@ private fun BoxScope.DeviceControls(
                     onScreenMenu = { screenMenuOpen = it },
                     onKeyboard = onKeyboard,
                     onCaveat = { caveatOpen = true },
+                    onInstall = onInstall,
                     onHardware = onHardware,
                     onRestart = onRestart,
                     onStop = onStop,
@@ -1040,6 +1071,7 @@ private fun DeviceToolbar(
     onScreenMenu: (Boolean) -> Unit,
     onKeyboard: () -> Unit,
     onCaveat: () -> Unit,
+    onInstall: () -> Unit,
     onHardware: () -> Unit,
     onRestart: () -> Unit,
     onStop: () -> Unit,
@@ -1054,6 +1086,11 @@ private fun DeviceToolbar(
         // VirtualNavigationBar for why the toolbar was the wrong window for it.
         ScreenOptionsAction(onOpenChange = onScreenMenu)
         ToolbarAction(Icons.Rounded.Keyboard, "Keyboard", onKeyboard)
+        // Here as well as in the corner menu, because this bar is what covers that corner: with
+        // JCode in portrait the device fills the width, there is no gutter for the bar to move
+        // into, and it lies across the very place the menu lives. Hiding the menu under it (see
+        // HomeChrome) stops a button being invisible; this is what stops it being unreachable.
+        ToolbarAction(Icons.Rounded.Add, "Install an app", onInstall)
         // The bench opens beside the device rather than over it, so the app being moved stays on
         // screen while it is being moved.
         ToolbarAction(Icons.Rounded.Tune, "Device hardware", onHardware)
