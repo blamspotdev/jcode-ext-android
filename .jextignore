@@ -1,3 +1,3 @@
-# The designer's Gradle module. What ships is the APK it builds -- lib/designer.apk, produced
+# The pack's Gradle module. What ships is the archive it builds -- lib/android-pack.apk, produced
 # before packing, see README -- not the toolchain that builds it.
-designer
+native

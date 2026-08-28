@@ -1,16 +1,22 @@
 // Production build for the Android Dev Pack.
 //
-// What ships is one file: `lib/designer.dex`, the layout designer's own code, loaded on demand into
-// JCode's process by `NativeExtensionLoader`. `jext pack` runs this (npm run build) before packaging,
-// so packing the extension is enough to produce it — by hand or in CI.
+// What ships is one file: `lib/android-pack.apk` — the pack's native half, loaded on demand into
+// JCode's process by `NativeExtensionLoader`. `jext pack` runs this (npm run build) before
+// packaging, so packing the extension is enough to produce it — by hand or in CI.
 //
-// The dex is taken from the merge task's output rather than unzipped back out of the APK the Android
-// plugin builds around it: the designer resolves no resources, so there is no resource table for
-// JCode to attach and nothing else in that archive is worth keeping.
+// **An APK, and no longer a bare dex.** It used to be `lib/designer.dex`, taken out of the merge
+// task rather than the archive, because the layout designer resolved no resources at all — it parses
+// layout XML itself and builds views in code — and the archive around its dex was an empty resource
+// table along for the ride. The virtual device moved into this same module and is not like that: its
+// status bar, its quick-settings icons and its permission prompt are real drawables, the ids its
+// views carry are what `uiautomator dump` reports, and the device's own system apps ship as assets.
+// All of that needs a resource table, and a table needs an archive for `addAssetPath` to attach.
 //
-// `lib/` is gitignored and `designer/` is in `.jextignore`: the dex is rebuilt per release rather
+// The APK is taken unsigned and never installed as an app. JCode verifies the *extension*, not this.
+//
+// `lib/` is gitignored and `native/` is in `.jextignore`: the archive is rebuilt per release rather
 // than committed, and the module that builds it stays out of the package. Without this script CI
-// packed neither, and the designer failed to load with "native entry is missing".
+// packed neither, and the pack failed to load with "native entry is missing".
 import { spawnSync } from 'node:child_process';
 import { copyFileSync, mkdirSync } from 'node:fs';
 import { resolve } from 'node:path';
@@ -18,17 +24,17 @@ import { resolve } from 'node:path';
 const win = process.platform === 'win32';
 // Absolute, because a bare `gradlew.bat` is not found in the working directory the way `./gradlew`
 // is on a POSIX shell, and the two platforms disagree about which relative spelling works.
-const gradlew = resolve('designer', win ? 'gradlew.bat' : 'gradlew');
-const DEX = 'designer/build/intermediates/dex/release/mergeDexRelease/classes.dex';
+const gradlew = resolve('native', win ? 'gradlew.bat' : 'gradlew');
+const APK = 'native/build/outputs/apk/release/jcode-android-native-release-unsigned.apk';
 
 const build = spawnSync(gradlew, ['assembleRelease'], {
-  cwd: 'designer',
+  cwd: 'native',
   stdio: 'inherit',
   shell: win,
 });
 if (build.status !== 0) process.exit(build.status || 1);
 
 mkdirSync('lib', { recursive: true });
-copyFileSync(DEX, 'lib/designer.dex');
+copyFileSync(APK, 'lib/android-pack.apk');
 
-console.log('✓ built designer/ → lib/designer.dex');
+console.log('✓ built native/ → lib/android-pack.apk');
