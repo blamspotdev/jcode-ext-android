@@ -23,4 +23,18 @@ interface IGuestSessionCallback {
 
     /** A task-view card was tapped: run this APK instead of whatever is on the screen. */
     oneway void onOpenApp(String apkPath);
+
+    /**
+     * What is on the device's screen now.
+     *
+     * The IDE cannot work this out for itself any more. It knows what it *started*, which used to be
+     * the same thing and stopped being one when the home screen became an app: from then on the tab
+     * was named after the launcher for the whole time an app was running, because the launcher was
+     * the last thing the IDE had been asked to start. Every switch after that one — an app opened
+     * from the home screen, Back returning to it, a card in recents — happens entirely inside the
+     * container.
+     *
+     * [label] is the app's own, for a tab to be named with; [packageName] is what it is.
+     */
+    oneway void onForeground(String packageName, String label);
 }

@@ -49,6 +49,9 @@ class VirtualDeviceGuest : JCodeVirtualDeviceGuest {
             onFinished = { reason -> runCatching { callback?.onGuestFinished(reason) } },
             onHome = { runCatching { callback?.onHome() } },
             onOpenApp = { apkPath -> runCatching { callback?.onOpenApp(apkPath) } },
+            onForeground = { packageName, label ->
+                runCatching { callback?.onForeground(packageName, label) }
+            },
         )
     }
 

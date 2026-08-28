@@ -172,10 +172,43 @@ internal object AppSandbox {
         workbench?.openHardwareTab()
     }
 
-    /** What the device's tab should read: the app on it, or the device itself when nothing is. */
-    private fun tabTitle(): String = apkPath.value.takeIf { it.isNotBlank() }
-        ?.let { "Device: " + File(it).name.removeSuffix(".apk") }
-        ?: "Device sandbox"
+    /**
+     * What the device's tab should read: the app on its screen, or the device itself at home.
+     *
+     * From what the container reports rather than from what the IDE started, because those stopped
+     * being the same thing when the home screen became an app — the IDE's last instruction is
+     * "start the launcher" for the whole time an app opened from that launcher is running. The APK
+     * path is the fallback for the moment before the container has said anything, and for a device
+     * whose tab was opened straight onto an app.
+     *
+     * The launcher is never named. A tab called "Device: launcher" says less than "Device", which is
+     * what a device showing its home screen is.
+     */
+    private fun tabTitle(): String {
+        foreground.value?.takeIf { it.isNotBlank() }?.let { return "Device: $it" }
+        val apk = apkPath.value.takeIf { it.isNotBlank() } ?: return "Device sandbox"
+        if (apk == launcherApk()) return "Device sandbox"
+        return "Device: " + File(apk).name.removeSuffix(".apk")
+    }
+
+    /**
+     * The app on the device's screen, as the container sees it — null while the home screen is up.
+     *
+     * Snapshot state because the tab's title is composed from it, and set from a binder thread, which
+     * is why every write goes through [main] the way [requestOpen]'s does.
+     */
+    private val foreground = mutableStateOf<String?>(null)
+
+    /** The container reported what is in front. Nothing to do but rename the tab it is in. */
+    internal fun onForegroundApp(packageName: String, label: String) {
+        val apply = Runnable {
+            val next = label.takeIf { it.isNotBlank() && packageName != DeviceIntents.LAUNCHER_PACKAGE }
+            if (next == foreground.value) return@Runnable
+            foreground.value = next
+            workbench?.openDeviceTab(tabTitle())
+        }
+        if (Looper.myLooper() == main.looper) apply.run() else main.post(apply)
+    }
 
     /** One session per process: the container owns a single `:guest` process, so a second tab would
      *  only ever be a second view of the same guest. */
@@ -306,6 +339,11 @@ internal class AppSandboxSession(context: Context) {
         /** A task-view card. `run` so the app starts rather than leaving the tab on its setup screen. */
         override fun onOpenApp(apkPath: String?) {
             apkPath?.takeIf { it.isNotBlank() }?.let { AppSandbox.requestOpen(it, null, run = true) }
+        }
+
+        /** What is on the device's screen, which is the only thing that can name the tab. */
+        override fun onForeground(packageName: String?, label: String?) {
+            AppSandbox.onForegroundApp(packageName.orEmpty(), label.orEmpty())
         }
     }
 

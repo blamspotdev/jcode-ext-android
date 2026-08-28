@@ -51,9 +51,9 @@ internal object GuestWindow {
      * guest exactly what the framework would do to an app whose window changed size — which is what
      * has just happened.
      */
-    fun applySize(guest: LoadedGuest, widthPx: Int, heightPx: Int, densityDpi: Int? = null) {
-        if (widthPx <= 0 || heightPx <= 0) return
-        runCatching {
+    fun applySize(guest: LoadedGuest, widthPx: Int, heightPx: Int, densityDpi: Int? = null): Int {
+        if (widthPx <= 0 || heightPx <= 0) return 0
+        return runCatching {
             val resources = guest.resources
             val metrics = DisplayMetrics().apply {
                 setTo(resources.displayMetrics)
@@ -98,10 +98,17 @@ internal object GuestWindow {
                 // against. Leaving it stale gives an app the new size at the old drawable bucket.
                 densityDpi?.let { this.densityDpi = it }
             }
+            // Read before the write, because the write is what makes it stale. This is the same
+            // question `ActivityThread` asks on a real configuration change — which fields moved —
+            // and the answer decides whether an activity is told about it or rebuilt for it: an app
+            // that did not declare a change in `configChanges` expects to be recreated, and one
+            // resized in place instead is an app whose own rotation handling was never exercised.
+            val changes = resources.configuration.diff(configuration)
             @Suppress("DEPRECATION")
             resources.updateConfiguration(configuration, metrics)
             Log.i(TAG, "guest window is ${widthDp}x${heightDp}dp (${widthPx}x$heightPx px)")
-        }.onFailure { Log.w(TAG, "cannot size the guest's window", it) }
+            changes
+        }.onFailure { Log.w(TAG, "cannot size the guest's window", it) }.getOrDefault(0)
     }
 
     /**

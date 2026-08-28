@@ -30,10 +30,17 @@ internal object VirtualTasks {
 
     private val recent = mutableListOf<String>()
 
-    /** Record [packageName] as the most recent task. */
+    /**
+     * Record [packageName] as the most recent task.
+     *
+     * The home screen is refused. It is an app on this device like any other and it is running more
+     * of the time than anything else, so it would sit permanently at the top of the list — and a
+     * card that takes you home is a card that duplicates the button next to it. A phone's recents
+     * does not list its launcher either, and for the same reason.
+     */
     @Synchronized
     fun ran(packageName: String) {
-        if (packageName.isBlank()) return
+        if (packageName.isBlank() || packageName == DeviceIntents.LAUNCHER_PACKAGE) return
         recent.remove(packageName)
         recent.add(0, packageName)
         while (recent.size > LIMIT) recent.removeAt(recent.lastIndex)
@@ -65,10 +72,10 @@ internal object VirtualTasks {
 /**
  * The device's task view: what has been running, as cards, over whatever is on the screen.
  *
- * **A device that runs one app at a time still needs this.** The device's single `:guest` process
- * means switching apps is stopping one and starting another — but that is exactly what a phone's
- * recents is *for*, and doing it from the launcher meant going Home first and losing the thing you
- * were comparing against. What this adds is the switch, not the multitasking.
+ * The apps behind the cards are alive. Home stops an app rather than closing it and keeps its back
+ * stack, so a card here returns to the screen that app was on — which is what a card in recents has
+ * always meant, and what makes this a switch rather than a fresh start. Only an app that has been
+ * force-stopped, or that was running before the device last restarted, has to be started again.
  *
  * Drawn inside the device's own container like [VirtualStatusBar] and [VirtualNavigationBar], so
  * `screencap` shows it, `uiautomator dump` lists it under [R.id.vdevice_task_view], and a tap from

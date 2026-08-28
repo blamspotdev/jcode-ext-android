@@ -8,6 +8,7 @@ import android.content.Intent
 import android.content.pm.ActivityInfo
 import android.content.pm.ApplicationInfo
 import android.os.Binder
+import android.os.Bundle
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
@@ -206,15 +207,42 @@ internal object GuestRuntime {
      * is going into; without one, `Dialog`, `PopupWindow` and option menus have no window to attach
      * to and the window manager refuses them.
      */
-    fun embed(apkPath: String, activityClass: String?, windowToken: IBinder?): Activity {
+    fun embed(apkPath: String, activityClass: String?, windowToken: IBinder?): Activity =
+        embed(stubFor(apkPath, activityClass), windowToken)
+
+    /**
+     * The stub intent that starts [activityClass] out of [apkPath], for a caller that has to keep it.
+     *
+     * The container does: an activity rebuilt for a configuration change is built from the intent
+     * that started it, the way `ActivityThread` relaunches from its `ActivityClientRecord`. Without
+     * one held, the only activity that could be recreated would be a task's root.
+     */
+    fun stubFor(apkPath: String, activityClass: String?): Intent {
         val guest = GuestLoader.load(host, apkPath)
         active = guest
         val target = activityClass?.takeIf { guest.activities.containsKey(it) } ?: guest.launchActivity
-        return embed(stubIntent(guest, target), windowToken)
+        return stubIntent(guest, target)
     }
 
-    /** Builds an embedded activity from a stub intent — the shape [rewriteOutgoing] hands its host. */
-    fun embed(stub: Intent, windowToken: IBinder?): Activity {
+    /**
+     * The package a stub intent starts, without building anything.
+     *
+     * Through the loader rather than by parsing the archive again: an app the container is asking
+     * about is one it is about to embed or has already embedded, so this is a cache hit in the case
+     * that matters and the load it would have done anyway in the case that does not.
+     */
+    fun packageOf(stub: Intent): String? = stub.getStringExtra(EXTRA_APK)?.let { apkPath ->
+        runCatching { GuestLoader.load(host, apkPath).packageName }.getOrNull()
+    }
+
+    /**
+     * Builds an embedded activity from a stub intent — the shape [rewriteOutgoing] hands its host.
+     *
+     * [savedState] is what the old instance wrote in `onSaveInstanceState`, and is non-null only for
+     * a relaunch. It reaches `onCreate` as the argument every activity is written to expect and has
+     * never once been given here, because nothing was ever relaunched.
+     */
+    fun embed(stub: Intent, windowToken: IBinder?, savedState: Bundle? = null): Activity {
         // Read *before* anything below can move it. `resolve` sets `active` to the activity being
         // built, so asking afterwards answers with the app that is starting rather than the app that
         // started it — which is null-filtered out and leaves getCallingPackage() with nothing.
@@ -270,10 +298,11 @@ internal object GuestRuntime {
         // Runs through GuestInstrumentation, so bind() still lands between attach and onCreate.
         embedding = true
         try {
-            instrumentation.callActivityOnCreate(activity, null)
+            instrumentation.callActivityOnCreate(activity, savedState)
         } finally {
             embedding = false
         }
+        savedState?.let { restoring[activity] = it }
         return activity
     }
 
@@ -328,6 +357,23 @@ internal object GuestRuntime {
     fun sizeEmbeddedWindow(widthPx: Int, heightPx: Int, densityDpi: Int? = null) {
         active?.let { GuestWindow.applySize(it, widthPx, heightPx, densityDpi) }
     }
+
+    /**
+     * Resizes the app [activity] belongs to, and answers with what that changed.
+     *
+     * Named rather than active, because the device's screen changes shape under *everything* on its
+     * stack and only one of those is in front. Sizing the active guest alone left the launcher
+     * underneath a running app holding the screen it had when it was last on top — and being told
+     * about a change by being handed its own unchanged `Configuration`, which is a notification
+     * about nothing.
+     *
+     * The return is a mask of `ActivityInfo.CONFIG_*`: what the caller has to decide is whether each
+     * activity is told or rebuilt, and that is a per-activity question even within one app.
+     */
+    fun sizeEmbeddedWindowOf(activity: Activity, widthPx: Int, heightPx: Int, densityDpi: Int?): Int =
+        GuestLoader.forPackage(activity.packageName)
+            ?.let { GuestWindow.applySize(it, widthPx, heightPx, densityDpi) }
+            ?: 0
 
     /** Hosts intra-guest `startActivity` calls in the tab while [launcher] is set. */
     fun setEmbeddedLauncher(launcher: ((Intent) -> Boolean)?) {
@@ -420,6 +466,15 @@ internal object GuestRuntime {
         instrumentation.callActivityOnStart(activity)
         val started = GuestHooks.dispatchLifecycleCallback(activity, "onActivityPostStarted")
 
+        // Between start and postCreate, where `ActivityThread` puts it — and only for an instance
+        // built to replace one, which is what [restoring] holds and an ordinary restart does not
+        // have. A phone does not re-deliver saved state to an activity that merely came back from
+        // being stopped; the instance never went away, so it never lost anything to give back.
+        restoring.remove(activity)?.let { bundle ->
+            runCatching { instrumentation.callActivityOnRestoreInstanceState(activity, bundle) }
+                .onFailure { Log.w(TAG, "${activity.javaClass.name} refused its saved state", it) }
+        }
+
         postCreate(activity)
 
         GuestHooks.dispatchLifecycleCallback(activity, "onActivityPreResumed")
@@ -439,6 +494,7 @@ internal object GuestRuntime {
             advanceLifecycle(activity, "ON_RESUME")
         }
         focus(activity, true)
+        state[activity] = RESUMED
         return started && resumed
     }
 
@@ -592,6 +648,8 @@ internal object GuestRuntime {
      */
     fun pauseEmbedded(activity: Activity): Boolean {
         val instrumentation = instrumentation ?: return false
+        if (state[activity] != RESUMED) return true
+        state[activity] = PAUSED
         focus(activity, false)
         GuestHooks.dispatchLifecycleCallback(activity, "onActivityPrePaused")
         instrumentation.callActivityOnPause(activity)
@@ -604,6 +662,115 @@ internal object GuestRuntime {
         return paused
     }
 
+    /**
+     * Stops an embedded activity, and saves what it wants to survive being rebuilt.
+     *
+     * The step the container never had. An activity covered by another one is paused *and stopped*
+     * on a phone — the two are not the same promise, and apps split their teardown across them
+     * deliberately: `onPause` is "you are no longer in front", `onStop` is "you are no longer
+     * visible", and a camera preview, a location request or a `BroadcastReceiver` registered in
+     * `onStart` is released in the second. A guest that was only ever paused kept all of it, for as
+     * long as it stayed loaded.
+     *
+     * `callActivityOnStop` calls `onStop()` straight, so the `Pre`/`Post` pair that
+     * `Activity.performStop` would have wrapped it in is dispatched here — which is what advances an
+     * AndroidX guest's `LifecycleRegistry`, exactly as on the resume path.
+     *
+     * The save comes *after* the stop because that is the order since Android P, and these guests
+     * target 33. Its result is held rather than returned: what asks for it is a relaunch, which is
+     * [embed]'s business, and threading a `Bundle` through the container's own stack would put the
+     * same value in two places.
+     */
+    fun stopEmbedded(activity: Activity, save: Boolean = true): Boolean {
+        val instrumentation = instrumentation ?: return false
+        if (state[activity] == STOPPED) return true
+        state[activity] = STOPPED
+        GuestHooks.dispatchLifecycleCallback(activity, "onActivityPreStopped")
+        instrumentation.callActivityOnStop(activity)
+        val stopped = GuestHooks.dispatchLifecycleCallback(activity, "onActivityPostStopped")
+        if (!stopped) advanceLifecycle(activity, "ON_STOP")
+        // `performSaveInstanceState` dispatches its own Pre/Post pair, so unlike the steps around it
+        // this one needs no help — and unlike them it can be skipped without breaking anything, so a
+        // guest that throws out of it is logged rather than left half-stopped.
+        // Not for an activity on its way out: a phone skips the save when `isFinishing`, because
+        // state saved for an instance nothing will replace is state nothing will read.
+        if (save && !activity.isFinishing) {
+            runCatching {
+                Bundle().also { bundle ->
+                    instrumentation.callActivityOnSaveInstanceState(activity, bundle)
+                    if (!bundle.isEmpty) saved[activity] = bundle
+                }
+            }.onFailure { Log.w(TAG, "${activity.javaClass.name} could not save its state", it) }
+        }
+        return stopped
+    }
+
+    /**
+     * Brings a stopped activity back — `onRestart`, then the whole resume path.
+     *
+     * The step that pairs with [stopEmbedded]. `onRestart` is the only callback an activity gets
+     * that says "you were stopped and are coming back rather than starting fresh", and an app that
+     * re-acquires in it what it released in `onStop` gets nothing back without it.
+     */
+    fun restartEmbedded(activity: Activity): Boolean {
+        val instrumentation = instrumentation ?: return false
+        runCatching { instrumentation.callActivityOnRestart(activity) }
+            .onFailure { Log.w(TAG, "${activity.javaClass.name} refused a restart", it) }
+        return resumeEmbedded(activity)
+    }
+
+    /**
+     * Delivers a second start of an activity that is already at the top of its stack.
+     *
+     * What `singleTop` and `singleTask` mean: the platform does not build a new instance, it hands
+     * the running one the intent. The device's own launcher is `singleTask`, so every Home press
+     * while already at home is one of these.
+     */
+    fun newIntentEmbedded(activity: Activity, intent: Intent) {
+        val instrumentation = instrumentation ?: return
+        runCatching {
+            activity.intent = intent
+            instrumentation.callActivityOnNewIntent(activity, intent)
+        }.onFailure { Log.w(TAG, "${activity.javaClass.name} refused a new intent", it) }
+    }
+
+    /**
+     * The `android:configChanges` [activity] declared, as a mask of `ActivityInfo.CONFIG_*`.
+     *
+     * Zero for an activity that declared none, which is most of them and is the answer that matters:
+     * it is what says "rebuild me" rather than "tell me". Zero is also the safe answer when the
+     * manifest cannot be reached, because being rebuilt is what an activity that says nothing
+     * expects.
+     */
+    fun configChangesOf(activity: Activity): Int =
+        GuestLoader.forPackage(activity.packageName)
+            ?.activities?.get(activity.javaClass.name)
+            ?.configChanges
+            ?: 0
+
+    /** What an activity wrote in `onSaveInstanceState`, held for the instance that replaces it. */
+    private val saved = Collections.synchronizedMap(WeakHashMap<Activity, Bundle>())
+
+    /** What a newly built activity is owed back — see [embed]'s `savedState`. */
+    private val restoring = Collections.synchronizedMap(WeakHashMap<Activity, Bundle>())
+
+    /** The state [activity] saved when it stopped, for a caller about to build its replacement. */
+    fun savedStateOf(activity: Activity): Bundle? = saved[activity]
+
+    /**
+     * Where each embedded activity currently sits, so no step is taken twice or skipped.
+     *
+     * `ActivityThread` keeps the same thing in its `ActivityClientRecord`, and for the same reason:
+     * the calls that move an activity come from several directions — the tab being hidden, another
+     * activity opening over it, the device being torn down — and two of them in a row used to pause
+     * a paused activity and stop it twice on the way to being destroyed.
+     */
+    private val state = Collections.synchronizedMap(WeakHashMap<Activity, Int>())
+
+    private const val RESUMED = 2
+    private const val PAUSED = 1
+    private const val STOPPED = 0
+
     fun destroyEmbedded(activity: Activity) {
         val instrumentation = instrumentation ?: return
         if (foreground === activity) foreground = null
@@ -611,11 +778,16 @@ internal object GuestRuntime {
         // started its render thread on gaining focus stops it on losing focus, and one told it still
         // had focus while being destroyed would keep drawing into a surface that is going away.
         focus(activity, false)
-        instrumentation.callActivityOnPause(activity)
-        GuestHooks.dispatchLifecycleCallback(activity, "onActivityPreStopped")
-        instrumentation.callActivityOnStop(activity)
-        GuestHooks.dispatchLifecycleCallback(activity, "onActivityPostStopped")
+        // Only the steps it has not taken. An activity covered by another one was paused and
+        // stopped when that one opened, and running both again here paused a paused activity and
+        // sent a second `onStop` to one that had already released everything the first asked for.
+        pauseEmbedded(activity)
+        // `save = false`: whatever is being destroyed here is going for good — the container tears a
+        // stack down rather than relaunching from it, and a relaunch saves for itself first.
+        stopEmbedded(activity, save = false)
         instrumentation.callActivityOnDestroy(activity)
+        state.remove(activity)
+        restoring.remove(activity)
     }
 
     private fun onLaunchActivity(intent: Intent, info: ActivityInfo?) {

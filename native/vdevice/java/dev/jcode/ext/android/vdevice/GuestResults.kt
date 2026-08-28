@@ -128,6 +128,29 @@ internal object GuestResults {
         )
     }
 
+    /**
+     * Moves everything [old] owes and is owed onto the instance replacing it.
+     *
+     * A configuration change an activity did not declare relaunches it, and the instance that comes
+     * back is a different object — which is the whole of the problem, because both sides of a
+     * pending result are held *by identity*. Without this, rotating the device while the Camera was
+     * open lost the photo on the way back: the answer was harvested off an activity nobody was
+     * waiting on, and the app that asked for it waited for ever.
+     */
+    fun replace(old: Activity, new: Activity) {
+        waiting.remove(old)?.let { waiting[new] = it }
+        // The other direction too: the requester can be the one rebuilt, and a result delivered to a
+        // destroyed activity is a result nothing receives.
+        waiting.entries.forEach { (started, pending) ->
+            if (pending.requester === old) {
+                waiting[started] = Pending(new, pending.requestCode, pending.request)
+            }
+        }
+        expecting?.takeIf { it.requester === old }?.let {
+            expecting = Pending(new, it.requestCode, it.request)
+        }
+    }
+
     /** Forgets a whole stack's worth, so a torn-down session leaves no activities held. */
     fun clear() {
         waiting.clear()
