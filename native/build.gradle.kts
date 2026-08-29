@@ -70,7 +70,7 @@ android {
      */
     sourceSets {
         getByName("main") {
-            java.srcDirs("src/main/java", "designer/java", "vdevice/java")
+            java.srcDirs("src/main/java", "designer/java", "vdevice/java", "sdkmanager/java")
             aidl.srcDirs("vdevice/aidl")
             res.srcDirs("vdevice/res")
             assets.srcDirs("vdevice/assets")

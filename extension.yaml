@@ -13,7 +13,10 @@ description: Android XML + Gradle language support, a layout designer, the virtu
 # 'config' is not declared", which is a silent empty map on the reading side.
 api:
   minApiVersion: 1
-  capabilities: [config]
+  # `exec` is the Android SDK Manager's: `sdkmanager` is a real program in the Linux runtime and
+  # the only way to ask it what is installed, or to install anything, is to run it. It appears on
+  # the Permissions screen as "Run commands in the Linux runtime", which is exactly what it is.
+  capabilities: [config, exec]
 
 requires:
   # The Kotlin Dev Pack requires the Kotlin LSP itself, so Android gets it transitively. The Java
@@ -43,6 +46,14 @@ suggests:
 # while a preset's substitutions ({{projectDir}}, {{file}}/{{dir}}, {{fileN}}/{{dirN}}) all expand to
 # guest-absolute paths. The build tasks have neither problem, and {{projectDir}} is all they need.
 contributes:
+  # The Android SDK has a package manager of its own, and one "Android SDK · Installed" row in
+  # the Toolchains list can say nothing about what is inside it — which platforms are here, which
+  # are only half here, what revision each is at, and which of them this device could not build
+  # against even once installed. So this pack puts its own manager in that list, and draws it.
+  toolchainActions:
+    - id: sdkmanager
+      label: Android SDK Manager
+      icon: android
   runConfigPresets:
     - android-doctor
     - android-doctor-fix

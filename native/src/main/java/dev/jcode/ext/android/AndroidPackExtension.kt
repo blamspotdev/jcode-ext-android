@@ -11,6 +11,7 @@ import dev.jcode.ext.android.designer.DesignerExtension
 import dev.jcode.ext.android.vdevice.AppSandbox
 import dev.jcode.ext.android.vdevice.AppSandboxPage
 import dev.jcode.ext.android.vdevice.VirtualDeviceAdbService
+import dev.jcode.ext.android.sdkmanager.SdkManagerPage
 import dev.jcode.ext.android.vdevice.VirtualHardwarePage
 import dev.jcode.ext.android.vdevice.VirtualSettingsProvider
 import dev.jcode.ext.android.vdevice.VirtualStorageProvider
@@ -41,6 +42,7 @@ class AndroidPackExtension : JCodeNativeExtension, JCodeVirtualDevice {
         when (params[JCodeNativeExtension.Params.VIEW]) {
             VIEW_DEVICE -> AppSandboxPage(onSnackbar = host::snackbar, host = host)
             VIEW_HARDWARE -> VirtualHardwarePage()
+            VIEW_SDK_MANAGER -> SdkManagerPage(host = host, onSnackbar = host::snackbar)
             // No view named: the file-claim surface, which is the designer's.
             else -> designer.Content(host, params)
         }
@@ -83,5 +85,14 @@ class AndroidPackExtension : JCodeNativeExtension, JCodeVirtualDevice {
 
         /** The hardware bench, which opens beside the device rather than over it. */
         const val VIEW_HARDWARE = "hardware"
+
+        /**
+         * The Android SDK Manager, offered as a row in JCode's Toolchains list.
+         *
+         * The id is the route AND the `contributes.toolchainActions` id in extension.yaml: the
+         * workbench opens a contributed action by asking this extension for the view named after
+         * it, so the two strings are one string kept in two files.
+         */
+        const val VIEW_SDK_MANAGER = "sdkmanager"
     }
 }
