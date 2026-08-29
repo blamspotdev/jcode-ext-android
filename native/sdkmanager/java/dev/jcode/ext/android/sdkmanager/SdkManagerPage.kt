@@ -528,7 +528,10 @@ private fun Footer(
             text = if (details) "Hide package details" else "Show package details",
             onClick = { onDetails(!details) },
         )
-        Spacer()
+        // Takes the slack so what is pending sits against the right edge. This was a fixed-width
+        // box, which looks like it pushes and does not — inside a Row that already spaces its
+        // children, it was an extra gap pretending to be a layout.
+        Box(modifier = Modifier.weight(1f))
         if (pending.isNotEmpty()) {
             val installs = pending.count { it.value }
             val removals = pending.size - installs
@@ -548,11 +551,6 @@ private fun Footer(
             }
         }
     }
-}
-
-@Composable
-private fun Spacer() {
-    Box(modifier = Modifier.width(Space.s))
 }
 
 @Composable

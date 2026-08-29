@@ -39,7 +39,6 @@ internal object SdkManagerCatalog {
         val packages: List<Package>,
         val aapt2Ceiling: Int,
         val androidHome: String,
-        val log: String,
     )
 
     /** Why a package this device can see is one it must not install. */
@@ -125,7 +124,7 @@ internal object SdkManagerCatalog {
         if (packages.isEmpty()) {
             return Result.failure(IllegalStateException("sdkmanager listed no packages:\n" + text.takeLast(TAIL)))
         }
-        return Result.success(Snapshot(packages, ceiling, home, text))
+        return Result.success(Snapshot(packages, ceiling, home))
     }
 
     /** The SDK is not installed at all — a different thing from a failed read, and said differently. */
