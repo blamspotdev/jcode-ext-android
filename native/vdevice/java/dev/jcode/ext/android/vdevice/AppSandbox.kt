@@ -150,6 +150,7 @@ internal object AppSandbox {
                 this.activityClass.value = activityClass
             }
             if (run) running.value = true
+            note("open ${apkPath?.substringAfterLast('/')} as ${activityClass ?: "its launcher activity"} (run=$run)")
             // Recorded on this side too. VirtualTasks is an object, so the copy the container fills
             // in lives in `:guest` and the home screen — which is drawn by the IDE, with no guest
             // running — would read an empty list of its own. Off the main thread because naming the
@@ -165,6 +166,19 @@ internal object AppSandbox {
             workbench?.openDeviceTab(tabTitle())
         }
         if (Looper.myLooper() == main.looper) open.run() else main.post(open)
+    }
+
+    /**
+     * One line in the device's own log about the device itself starting, stopping or going off.
+     *
+     * The device log is written by everything that happens *on* the device and said nothing about
+     * the device being asked to run something — so an app that was told to start and did not left no
+     * trace at all, and the panel's "Starting the app…" was the only evidence either way. It cost an
+     * afternoon twice.
+     */
+    private fun note(message: String) {
+        if (!::appContext.isInitialized) return
+        VirtualDeviceLog.append(appContext, 'I', TAG, message)
     }
 
     /** The hardware bench's tab, asked for by the device's own control bar. */
@@ -229,6 +243,7 @@ internal object AppSandbox {
      */
     fun requestStop() {
         val stop = Runnable {
+            note("force-stop: the device is back at its home screen")
             session?.close()
             running.value = false
         }
@@ -237,6 +252,7 @@ internal object AppSandbox {
 
     @Synchronized
     fun close() {
+        note("the device's guest was unbound")
         session?.close()
         session = null
         running.value = false
@@ -250,6 +266,7 @@ internal object AppSandbox {
     /** Turns the device off, process and all — see [AppSandboxSession.shutdown]. */
     @Synchronized
     fun shutdown() {
+        note("the device was switched off")
         session?.shutdown()
         session = null
         running.value = false

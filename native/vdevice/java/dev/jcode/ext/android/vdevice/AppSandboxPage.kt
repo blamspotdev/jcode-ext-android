@@ -636,7 +636,12 @@ private fun DeviceScreen(
         when {
             // The home screen itself is on the surface, drawn by VirtualLauncher — only the chrome
             // that does not belong to the device is composed over it.
-            status is SandboxStatus.Starting || status is SandboxStatus.Idle ->
+            //
+            // `running` is half the condition, and it is the half that was missing: Idle is also the
+            // state of a device that is *not* starting anything, so a device resting on its home
+            // screen said "Starting the app…" across it — for ever, and over a home screen that was
+            // working perfectly. Somebody reading that reasonably concludes the device is hung.
+            running && (status is SandboxStatus.Starting || status is SandboxStatus.Idle) ->
                 ScreenMessage("Starting the app…")
 
             status is SandboxStatus.Failed -> ScreenFallback(

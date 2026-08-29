@@ -63,6 +63,30 @@ internal object VirtualDeviceLog {
         return lines.takeLast(tail ?: lines.size).joinToString("\n", postfix = "\n")
     }
 
+    /**
+     * How long the log is now — the offset a follower starts from when it wants only what arrives
+     * after it attached, which is what `logcat` without `-T` does.
+     */
+    fun length(context: Context): Long = runCatching { file(context).length() }.getOrDefault(0L)
+
+    /**
+     * Whatever has been appended past [from], and where to read from next.
+     *
+     * Answers `"" to 0` when the file has been truncated or cleared under the reader — the offset it
+     * held points into a log that no longer exists, and starting again is the only honest answer.
+     */
+    fun readFrom(context: Context, from: Long): Pair<String, Long> = runCatching {
+        val target = file(context)
+        val length = target.length()
+        if (length < from) return "" to 0L
+        if (length == from) return "" to from
+        target.inputStream().use { input ->
+            input.skip(from)
+            val fresh = input.readBytes().toString(Charsets.UTF_8)
+            fresh to length
+        }
+    }.getOrDefault("" to from)
+
     fun clear(context: Context) {
         runCatching { file(context).delete() }
     }
