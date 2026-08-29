@@ -118,11 +118,21 @@ internal fun SdkManagerPage(
                         ManagerFilterChip(selected = tab == t, label = t.label, onClick = { tab = t })
                     }
                 }
-                val rows = remember(snap, tab, details) { rowsFor(snap, tab, details) }
+                // Keyed on the tab, so each arrives in the order that suits it — platforms newest
+                // first, tools by name — and a sort chosen on one does not follow you to the other.
+                var sort by remember(tab) { mutableStateOf(tab.defaultSort) }
+                val rows = remember(snap, tab, details, sort) { rowsFor(snap, tab, details, sort) }
                 PackageTable(
                     modifier = Modifier.weight(1f),
                     rows = rows,
                     columns = tab.columns,
+                    sort = sort,
+                    onSort = { column ->
+                        // Clicking the column already sorted reverses it; a different one starts in
+                        // whichever direction reads naturally for what it holds.
+                        sort = if (sort.column == column) sort.copy(ascending = !sort.ascending)
+                        else Sort(column, tab.naturalDirection(column))
+                    },
                     pending = pending,
                     onToggle = { row ->
                         val unusable = row.unusable
@@ -256,12 +266,33 @@ private fun LicenceDialog(
     )
 }
 
-private enum class Tab(val label: String, val columns: List<String>) {
+/**
+ * A tab, and the columns beside the name.
+ *
+ * The last column is always Status, rendered from [PackageRow.status] rather than from its cells —
+ * so a row supplies one fewer cell than there are columns here.
+ */
+private enum class Tab(val label: String, val columns: List<String>, val defaultSort: Sort) {
     /** Grouped by API level, the way Studio's collapsed list is — which is what makes a row able to
-     *  be *partially* installed. */
-    Platforms("SDK Platforms", listOf("API Level", "Revision", "Status")),
-    Tools("SDK Tools", listOf("Version", "", "Status")),
+     *  be *partially* installed. Newest first, which is what somebody looking for a platform wants. */
+    Platforms("SDK Platforms", listOf("API Level", "Revision", "Status"), Sort(1, ascending = false)),
+    Tools("SDK Tools", listOf("Version", "Status"), Sort(0, ascending = true)),
+    ;
+
+    /** Column 0 is the name; 1..n are [columns]. */
+    val statusColumn: Int get() = columns.size
 }
+
+/** Which column the table is ordered by, and which way. */
+private data class Sort(val column: Int, val ascending: Boolean)
+
+/**
+ * Where a column starts when you first click it.
+ *
+ * Text reads best A→Z and versions read best newest-first, so the direction follows the kind of
+ * thing in the column rather than being the same everywhere and wrong half the time.
+ */
+private fun Tab.naturalDirection(column: Int): Boolean = column == 0 || column == statusColumn
 
 /** One line of the table: a group of packages that a single checkbox acts on. */
 private data class PackageRow(
@@ -313,13 +344,18 @@ private val VERSION_ORDER = compareBy<SdkManagerCatalog.Package> { versionKey(it
  * packages themselves. Tools group by family for the same reason — nobody scanning for the NDK wants
  * eleven build-tools revisions in the way.
  */
-private fun rowsFor(snap: SdkManagerCatalog.Snapshot, tab: Tab, details: Boolean): List<PackageRow> {
+private fun rowsFor(
+    snap: SdkManagerCatalog.Snapshot,
+    tab: Tab,
+    details: Boolean,
+    sort: Sort,
+): List<PackageRow> {
     fun leaf(p: SdkManagerCatalog.Package, indent: Boolean) = PackageRow(
         key = p.path,
         name = p.description.ifBlank { p.path },
         cells = when (tab) {
-            Tab.Platforms -> listOf("", p.version, "")
-            Tab.Tools -> listOf(p.version, "", "")
+            Tab.Platforms -> listOf("", p.version)
+            Tab.Tools -> listOf(p.version)
         },
         paths = listOf(p.path),
         installedPaths = if (p.installed) setOf(p.path) else emptySet(),
@@ -328,32 +364,32 @@ private fun rowsFor(snap: SdkManagerCatalog.Snapshot, tab: Tab, details: Boolean
         indent = indent,
     )
 
-    return when (tab) {
+    // Built as groups, sorted as groups, flattened last. Sorting the flat list instead would tear
+    // every expanded package away from the row it belongs to and scatter them through the table.
+    val groups: List<Pair<PackageRow, List<PackageRow>>> = when (tab) {
         Tab.Platforms -> snap.packages
             .mapNotNull { p -> SdkManagerCatalog.apiLevelOf(p.path)?.let { it to p } }
             .groupBy({ it.first }, { it.second })
             .toList()
-            .sortedByDescending { (api, _) -> api.substringBefore('.').toIntOrNull() ?: 0 }
-            .flatMap { (api, pkgs) ->
+            .map { (api, pkgs) ->
                 val platform = pkgs.firstOrNull { it.family == "platforms" }
                 val group = PackageRow(
                     key = "api-$api",
                     name = androidReleaseName(api),
-                    cells = listOf(api, platform?.version.orEmpty(), ""),
+                    cells = listOf(api, platform?.version.orEmpty()),
                     paths = pkgs.map { it.path },
                     installedPaths = pkgs.filter { it.installed }.map { it.path }.toSet(),
                     update = pkgs.any { it.update != null },
                     unusable = platform?.let { SdkManagerCatalog.unusable(it, snap.aapt2Ceiling) },
                 )
-                if (details) listOf(group) + pkgs.map { leaf(it, indent = true) } else listOf(group)
+                group to if (details) pkgs.map { leaf(it, indent = true) } else emptyList()
             }
 
         Tab.Tools -> snap.packages
             .filter { SdkManagerCatalog.apiLevelOf(it.path) == null }
             .groupBy { it.family }
             .toList()
-            .sortedBy { (family, _) -> family }
-            .flatMap { (family, pkgs) ->
+            .map { (family, pkgs) ->
                 val installed = pkgs.filter { it.installed }
                 val newest = pkgs.maxWithOrNull(VERSION_ORDER) ?: pkgs.first()
                 // What the collapsed row is *about*: the newest installed revision if any is here,
@@ -366,19 +402,57 @@ private fun rowsFor(snap: SdkManagerCatalog.Snapshot, tab: Tab, details: Boolean
                     // A family of one is named by the package itself: `build;templates` is a real
                     // package whose family name would otherwise read as "build".
                     name = if (pkgs.size == 1) pkgs[0].description.ifBlank { family } else toolFamilyName(family),
-                    cells = listOf(face.version, "", ""),
+                    cells = listOf(face.version),
                     paths = paths,
                     installedPaths = installed.map { it.path }.toSet(),
                     update = pkgs.any { it.update != null },
                     unusable = SdkManagerCatalog.unusable(face, snap.aapt2Ceiling),
                 )
-                if (details) {
-                    listOf(group) + pkgs.sortedWith(VERSION_ORDER.reversed()).map { leaf(it, indent = true) }
-                } else {
-                    listOf(group)
-                }
+                group to if (details) pkgs.sortedWith(VERSION_ORDER.reversed()).map { leaf(it, indent = true) }
+                else emptyList()
             }
     }
+
+    val ordered = groups.sortedWith(comparatorFor(tab, sort.column))
+    return (if (sort.ascending) ordered else ordered.asReversed())
+        .flatMap { (group, children) -> listOf(group) + children }
+}
+
+/**
+ * Orders groups by one column.
+ *
+ * Versions are compared component by component rather than as text, or `9.0` sorts above `34.0.0`.
+ * Status is compared by how much it asks of you — something to update first, something this device
+ * cannot use last — because alphabetical order over five fixed words means nothing to anybody.
+ */
+private fun comparatorFor(tab: Tab, column: Int): Comparator<Pair<PackageRow, List<PackageRow>>> {
+    val row: (Pair<PackageRow, List<PackageRow>>) -> PackageRow = { it.first }
+    return when (column) {
+        0 -> compareBy { row(it).name.lowercase() }
+        tab.statusColumn -> compareBy({ statusRank(row(it)) }, { row(it).name.lowercase() })
+        else -> Comparator { a, b ->
+            val ka = versionKey(row(a).cells.getOrElse(column - 1) { "" })
+            val kb = versionKey(row(b).cells.getOrElse(column - 1) { "" })
+            compareVersionKeys(ka, kb).let { if (it != 0) it else row(a).name.compareTo(row(b).name) }
+        }
+    }
+}
+
+private fun compareVersionKeys(a: List<Long>, b: List<Long>): Int {
+    for (i in 0 until maxOf(a.size, b.size)) {
+        val c = (a.getOrElse(i) { -1L }).compareTo(b.getOrElse(i) { -1L })
+        if (c != 0) return c
+    }
+    return 0
+}
+
+/** Most-actionable first: what wants updating, then what is half done, then the rest. */
+private fun statusRank(row: PackageRow): Int = when {
+    row.unusable != null -> 4
+    row.update -> 0
+    row.installedPaths.isEmpty() -> 3
+    row.installedPaths.size == row.paths.size -> 2
+    else -> 1
 }
 
 /**
@@ -424,6 +498,8 @@ private fun PackageTable(
     columns: List<String>,
     pending: Map<String, Boolean>,
     onToggle: (PackageRow) -> Unit,
+    sort: Sort,
+    onSort: (Int) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Surface(
@@ -435,9 +511,9 @@ private fun PackageTable(
                 modifier = Modifier.fillMaxWidth().padding(horizontal = Space.ms, vertical = Space.s),
                 horizontalArrangement = Arrangement.spacedBy(Space.s),
             ) {
-                Text("Name", style = MaterialTheme.typography.labelSmall, modifier = Modifier.weight(1f))
-                columns.forEach {
-                    Text(it, style = MaterialTheme.typography.labelSmall, modifier = Modifier.width(COLUMN))
+                HeaderCell("Name", 0, sort, onSort, Modifier.weight(1f))
+                columns.forEachIndexed { index, label ->
+                    HeaderCell(label, index + 1, sort, onSort, Modifier.width(COLUMN))
                 }
             }
             rows.forEachIndexed { index, row ->
@@ -480,10 +556,48 @@ private fun PackageTable(
                             )
                         }
                     }
-                    row.cells.dropLast(1).forEach { Cell(it) }
+                    row.cells.forEach { Cell(it) }
                     Cell(row.status)
                 }
             }
+        }
+    }
+}
+
+/**
+ * A column heading that orders the table.
+ *
+ * The arrow is on the active column only. Without it a sorted table is a table somebody has to work
+ * out by reading it, and clicking a heading that gives no sign it did anything reads as broken.
+ */
+@Composable
+private fun HeaderCell(
+    label: String,
+    column: Int,
+    sort: Sort,
+    onSort: (Int) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val active = sort.column == column
+    Row(
+        modifier = modifier.clickable { onSort(column) }.padding(vertical = Space.hairline),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelSmall,
+            fontWeight = if (active) FontWeight.SemiBold else FontWeight.Normal,
+            color = if (active) MaterialTheme.colorScheme.onSurface
+            else MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+        if (active) {
+            Text(
+                text = if (sort.ascending) " ▲" else " ▼",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
         }
     }
 }
