@@ -32,6 +32,12 @@ fi
 # produce a project that scaffolds perfectly and then fails every build inside resource linking.
 COMPILE_SDK="$(cat "$ANDROID_HOME/jcode-compile-sdk.txt" 2>/dev/null || true)"
 [ -n "$COMPILE_SDK" ] || COMPILE_SDK=36
+# Major component only. Android now ships minor platform versions and the SDK install records
+# whichever is newest-readable, so this file can say `36.1` -- but `compileSdk` is an `Int?` in the
+# Gradle Kotlin DSL, and `compileSdk = 36.1` is a Double literal that fails before any task runs:
+# "Assignment type mismatch: actual type is 'Double', but 'Int?' was expected". Measured on a fresh
+# install, where 36.1 is what gets picked; a device that happens to record `36` never sees it.
+COMPILE_SDK="${COMPILE_SDK%%.*}"
 
 # `gradle/9.0` rather than `lightbuild/0.1`: the runtime has Gradle 9 and the AGP the former asks
 # for, and lightbuild is a build system this device has never run.

@@ -4,6 +4,12 @@ description: An Empty Activity Compose app, scaffolded from the Android SDK's ow
 requires:
   - android-prereqs
   - android-sdk
+  # The scaffold reads Google's template-definition.json and unpacks one variant out of the SDK's
+  # template zip, which needs a JSON parser and a zip reader. The runtime has neither `jq` nor
+  # `unzip` guaranteed, and python3 covers both from its standard library. Undeclared, this worked
+  # on any device that happened to have the Python pack and produced an EMPTY PROJECT on one that
+  # did not -- measured on a fresh install: "python3: not found", no files, no error on screen.
+  - python
 inputs:
   - id: applicationId
     label: Application ID (package name)
