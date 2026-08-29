@@ -165,17 +165,19 @@ one `entry.native` per extension: the **layout designer** (`designer/`) and the 
 (`vdevice/`), the container that runs a built APK inside JCode.
 
 ```sh
-npm run build     # runs native/gradlew assembleRelease and copies the APK into lib/
+npm run build     # runs native/gradlew assembleRelease and copies the three APKs into lib/
 ```
 
 or by hand:
 
 ```sh
 cd native && ./gradlew assembleRelease
-cp build/outputs/apk/release/*-release-unsigned.apk ../lib/android-pack.apk
+cp designer/build/outputs/apk/release/*-release-unsigned.apk ../lib/designer.apk
+cp sdkmanager/build/outputs/apk/release/*-release-unsigned.apk ../lib/sdkmanager.apk
+cp vdevice/build/outputs/apk/release/*-release-unsigned.apk ../lib/vdevice.apk
 ```
 
-Unsigned is correct: JCode loads this APK with a `DexClassLoader` and never installs it, so
+Unsigned is correct: JCode loads these APKs with a `DexClassLoader` and never installs them, so
 nothing checks its signature. What *is* checked is the signature on the `.jext` around it —
 an extension shipping native code is refused unless the package itself was officially signed.
 While working on the device that rule is a real cost, so JCode has one way past it:
@@ -189,7 +191,7 @@ nobody on a phone can run.
 
 ### The compileOnly jars in `native/libs/`
 
-`jcode-ext-api-abi8.jar`, `jcode-core-design.jar` and `jcode-core-distro.jar` are JCode's own
+`jcode-ext-api-abi9.jar`, `jcode-core-design.jar` and `jcode-core-distro.jar` are JCode's own
 classes, and the pack compiles against them without bundling them: it resolves them from JCode at
 runtime, because it runs *inside* JCode's process and a second copy of Compose or of the design
 system would be the wrong one. Refresh them from the app repo when JCode's own move:

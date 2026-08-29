@@ -1,3 +1,4 @@
-# The pack's Gradle module. What ships is the archive it builds -- lib/android-pack.apk, produced
-# before packing, see README -- not the toolchain that builds it.
+# The pack's Gradle modules. What ships is the archives they build -- lib/designer.apk,
+# lib/sdkmanager.apk and lib/vdevice.apk, produced before packing, see README -- not the toolchain
+# that builds them.
 native
