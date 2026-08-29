@@ -8,10 +8,17 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.ChevronRight
+import androidx.compose.material.icons.rounded.ExpandMore
+import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
@@ -31,6 +38,7 @@ import androidx.compose.ui.state.ToggleableState
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import dev.blamspot.jcode.design.AlertDialog
 import dev.blamspot.jcode.design.CompactFilledButton
@@ -67,7 +75,10 @@ internal fun SdkManagerPage(
     var failure by remember { mutableStateOf<Throwable?>(null) }
     var loading by remember { mutableStateOf(true) }
     var tab by remember { mutableStateOf(Tab.Platforms) }
-    var details by remember { mutableStateOf(false) }
+    /** Group rows the user has opened. Per row rather than one "show package details" switch: a
+     *  platform carries sources, system images and add-ons, and expanding all of them at once to
+     *  read one of them buries the table it was meant to explain. */
+    var expanded by remember { mutableStateOf(setOf<String>()) }
     /** Paths whose desired state differs from disk: true = install it, false = remove it. */
     var pending by remember { mutableStateOf(mapOf<String, Boolean>()) }
     var progress by remember { mutableStateOf<SdkManagerApply.Progress?>(null) }
@@ -121,11 +132,14 @@ internal fun SdkManagerPage(
                 // Keyed on the tab, so each arrives in the order that suits it — platforms newest
                 // first, tools by name — and a sort chosen on one does not follow you to the other.
                 var sort by remember(tab) { mutableStateOf(tab.defaultSort) }
-                val rows = remember(snap, tab, details, sort) { rowsFor(snap, tab, details, sort) }
+                val rows = remember(snap, tab, expanded, sort) { rowsFor(snap, tab, expanded, sort) }
                 PackageTable(
                     modifier = Modifier.weight(1f),
                     rows = rows,
                     columns = tab.columns,
+                    onExpand = { row ->
+                        expanded = if (row.key in expanded) expanded - row.key else expanded + row.key
+                    },
                     sort = sort,
                     onSort = { column ->
                         // Clicking the column already sorted reverses it; a different one starts in
@@ -144,8 +158,6 @@ internal fun SdkManagerPage(
                     },
                 )
                 Footer(
-                    details = details,
-                    onDetails = { details = it },
                     pending = pending,
                     onDiscard = { pending = emptyMap() },
                     busy = checkingLicences,
@@ -272,11 +284,15 @@ private fun LicenceDialog(
  * The last column is always Status, rendered from [PackageRow.status] rather than from its cells —
  * so a row supplies one fewer cell than there are columns here.
  */
-private enum class Tab(val label: String, val columns: List<String>, val defaultSort: Sort) {
+private enum class Tab(val label: String, val columns: List<Col>, val defaultSort: Sort) {
     /** Grouped by API level, the way Studio's collapsed list is — which is what makes a row able to
      *  be *partially* installed. Newest first, which is what somebody looking for a platform wants. */
-    Platforms("SDK Platforms", listOf("API Level", "Revision", "Status"), Sort(1, ascending = false)),
-    Tools("SDK Tools", listOf("Version", "Status"), Sort(0, ascending = true)),
+    Platforms(
+        "SDK Platforms",
+        listOf(Col("API Level", 76.dp), Col("Revision", 56.dp), Col("Status", 104.dp)),
+        Sort(1, ascending = false),
+    ),
+    Tools("SDK Tools", listOf(Col("Version", 84.dp), Col("Status", 104.dp)), Sort(0, ascending = true)),
     ;
 
     /** Column 0 is the name; 1..n are [columns]. */
@@ -285,6 +301,15 @@ private enum class Tab(val label: String, val columns: List<String>, val default
 
 /** Which column the table is ordered by, and which way. */
 private data class Sort(val column: Int, val ascending: Boolean)
+
+/**
+ * A column beside the name, and how much room it takes.
+ *
+ * Sized per column rather than one width for all of them. Three 96dp columns plus a checkbox and a
+ * disclosure leave about 19dp for the name on a phone, which renders every row as `Androi…` — the
+ * one column that says what the row *is* squeezed out by two that hold `1` and `37.2`.
+ */
+private data class Col(val label: String, val width: Dp)
 
 /**
  * Where a column starts when you first click it.
@@ -308,6 +333,10 @@ private data class PackageRow(
     val update: Boolean,
     val unusable: SdkManagerCatalog.Unusable?,
     val indent: Boolean = false,
+    /** Whether this row has packages of its own worth showing. A family of one has nothing to open
+     *  into -- its single child would repeat the row it hangs under. */
+    val expandable: Boolean = false,
+    val expanded: Boolean = false,
 ) {
     val state: ToggleableState = when (installedPaths.size) {
         0 -> ToggleableState.Off
@@ -340,14 +369,15 @@ private val VERSION_ORDER = compareBy<SdkManagerCatalog.Package> { versionKey(it
 /**
  * The rows for a tab.
  *
- * Collapsed, a platform row is an API level and everything that belongs to it; expanded, it is the
- * packages themselves. Tools group by family for the same reason — nobody scanning for the NDK wants
- * eleven build-tools revisions in the way.
+ * Collapsed, a platform row is an API level and everything that belongs to it; opened, it is the
+ * packages themselves underneath. Tools group by family for the same reason — nobody scanning for
+ * the NDK wants eleven build-tools revisions in the way. [open] holds the groups somebody has
+ * unfolded, so opening one to read it leaves the rest of the table as it was.
  */
 private fun rowsFor(
     snap: SdkManagerCatalog.Snapshot,
     tab: Tab,
-    details: Boolean,
+    open: Set<String>,
     sort: Sort,
 ): List<PackageRow> {
     fun leaf(p: SdkManagerCatalog.Package, indent: Boolean) = PackageRow(
@@ -373,16 +403,20 @@ private fun rowsFor(
             .toList()
             .map { (api, pkgs) ->
                 val platform = pkgs.firstOrNull { it.family == "platforms" }
+                val key = "api-$api"
                 val group = PackageRow(
-                    key = "api-$api",
+                    key = key,
                     name = androidReleaseName(api),
                     cells = listOf(api, platform?.version.orEmpty()),
                     paths = pkgs.map { it.path },
                     installedPaths = pkgs.filter { it.installed }.map { it.path }.toSet(),
                     update = pkgs.any { it.update != null },
                     unusable = platform?.let { SdkManagerCatalog.unusable(it, snap.aapt2Ceiling) },
+                    expandable = pkgs.size > 1,
+                    expanded = key in open,
                 )
-                group to if (details) pkgs.map { leaf(it, indent = true) } else emptyList()
+                group to if (group.expandable && group.expanded) pkgs.map { leaf(it, indent = true) }
+                else emptyList()
             }
 
         Tab.Tools -> snap.packages
@@ -397,8 +431,9 @@ private fun rowsFor(
                 val face = installed.maxWithOrNull(VERSION_ORDER) ?: newest
                 // Checking an absent family installs the newest; unchecking removes what is here.
                 val paths = if (installed.isEmpty()) listOf(newest.path) else installed.map { it.path }
+                val key = "family-$family"
                 val group = PackageRow(
-                    key = "family-$family",
+                    key = key,
                     // A family of one is named by the package itself: `build;templates` is a real
                     // package whose family name would otherwise read as "build".
                     name = if (pkgs.size == 1) pkgs[0].description.ifBlank { family } else toolFamilyName(family),
@@ -407,8 +442,11 @@ private fun rowsFor(
                     installedPaths = installed.map { it.path }.toSet(),
                     update = pkgs.any { it.update != null },
                     unusable = SdkManagerCatalog.unusable(face, snap.aapt2Ceiling),
+                    expandable = pkgs.size > 1,
+                    expanded = key in open,
                 )
-                group to if (details) pkgs.sortedWith(VERSION_ORDER.reversed()).map { leaf(it, indent = true) }
+                group to if (group.expandable && group.expanded)
+                    pkgs.sortedWith(VERSION_ORDER.reversed()).map { leaf(it, indent = true) }
                 else emptyList()
             }
     }
@@ -487,17 +525,27 @@ private fun Header(busy: Boolean, onRefresh: () -> Unit) {
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
+        // An icon, not a labelled button: it sits beside a title that already says what the page
+        // is, and the word "Refresh" was the widest thing in the header on a phone.
         if (busy) CircularProgressIndicator(modifier = Modifier.width(18.dp))
-        else CompactOutlinedButton(text = "Refresh", onClick = onRefresh)
+        else IconButton(onClick = onRefresh) {
+            Icon(
+                imageVector = Icons.Rounded.Refresh,
+                contentDescription = "Refresh",
+                modifier = Modifier.size(20.dp),
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
     }
 }
 
 @Composable
 private fun PackageTable(
     rows: List<PackageRow>,
-    columns: List<String>,
+    columns: List<Col>,
     pending: Map<String, Boolean>,
     onToggle: (PackageRow) -> Unit,
+    onExpand: (PackageRow) -> Unit,
     sort: Sort,
     onSort: (Int) -> Unit,
     modifier: Modifier = Modifier,
@@ -511,9 +559,10 @@ private fun PackageTable(
                 modifier = Modifier.fillMaxWidth().padding(horizontal = Space.ms, vertical = Space.s),
                 horizontalArrangement = Arrangement.spacedBy(Space.s),
             ) {
+                Box(modifier = Modifier.width(DISCLOSURE))
                 HeaderCell("Name", 0, sort, onSort, Modifier.weight(1f))
-                columns.forEachIndexed { index, label ->
-                    HeaderCell(label, index + 1, sort, onSort, Modifier.width(COLUMN))
+                columns.forEachIndexed { index, column ->
+                    HeaderCell(column.label, index + 1, sort, onSort, Modifier.width(column.width))
                 }
             }
             rows.forEachIndexed { index, row ->
@@ -530,6 +579,25 @@ private fun PackageTable(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(Space.s),
                 ) {
+                    // Its own hit target, ahead of the checkbox. Opening a group and choosing a
+                    // group are different intentions, and a row that did both on one tap would make
+                    // reading what is inside impossible without also selecting it.
+                    Box(
+                        modifier = Modifier.width(DISCLOSURE),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        if (row.expandable) {
+                            Icon(
+                                imageVector = if (row.expanded) Icons.Rounded.ExpandMore
+                                else Icons.Rounded.ChevronRight,
+                                contentDescription = if (row.expanded) "Collapse" else "Expand",
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier
+                                    .size(18.dp)
+                                    .clickable { onExpand(row) },
+                            )
+                        }
+                    }
                     TriStateCheckbox(
                         state = if (changing) pendingState(row, pending) else row.state,
                         onClick = { onToggle(row) },
@@ -540,7 +608,11 @@ private fun PackageTable(
                         Text(
                             text = row.name,
                             style = MaterialTheme.typography.bodySmall,
-                            maxLines = 1,
+                            // Two lines for a package inside a group. Their names differ at the
+                            // end -- "Android TV ARM 64 v8a System Image" against "Android TV Intel
+                            // x86 Atom_64" -- so one truncated line renders three different
+                            // downloads as three identical rows.
+                            maxLines = if (row.indent) 2 else 1,
                             overflow = TextOverflow.Ellipsis,
                             color = if (row.unusable != null) MaterialTheme.colorScheme.onSurfaceVariant
                             else MaterialTheme.colorScheme.onSurface,
@@ -556,8 +628,8 @@ private fun PackageTable(
                             )
                         }
                     }
-                    row.cells.forEach { Cell(it) }
-                    Cell(row.status)
+                    row.cells.forEachIndexed { i, cell -> Cell(cell, columns[i].width) }
+                    Cell(row.status, columns.last().width)
                 }
             }
         }
@@ -603,14 +675,14 @@ private fun HeaderCell(
 }
 
 @Composable
-private fun Cell(text: String) {
+private fun Cell(text: String, width: Dp) {
     Text(
         text = text,
         style = MaterialTheme.typography.labelSmall,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
         maxLines = 1,
         overflow = TextOverflow.Ellipsis,
-        modifier = Modifier.width(COLUMN),
+        modifier = Modifier.width(width),
     )
 }
 
@@ -626,8 +698,6 @@ private fun pendingState(row: PackageRow, pending: Map<String, Boolean>): Toggle
 
 @Composable
 private fun Footer(
-    details: Boolean,
-    onDetails: (Boolean) -> Unit,
     pending: Map<String, Boolean>,
     onDiscard: () -> Unit,
     onApply: () -> Unit,
@@ -638,10 +708,6 @@ private fun Footer(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(Space.s),
     ) {
-        CompactOutlinedButton(
-            text = if (details) "Hide package details" else "Show package details",
-            onClick = { onDetails(!details) },
-        )
         // Takes the slack so what is pending sits against the right edge. This was a fixed-width
         // box, which looks like it pushes and does not — inside a Row that already spaces its
         // children, it was an extra gap pretending to be a layout.
@@ -711,7 +777,9 @@ private fun ApplyProgress(progress: SdkManagerApply.Progress, modifier: Modifier
     }
 }
 
-private val COLUMN = 96.dp
+/** The disclosure column, held open on every row so names start at one x whether or not the
+ *  row has anything to open. */
+private val DISCLOSURE = 20.dp
 
 /**
  * What Android Studio calls an API level.
