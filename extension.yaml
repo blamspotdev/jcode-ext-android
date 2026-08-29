@@ -87,6 +87,18 @@ settings:
       reselect and an app laid out for a small phone genuinely reflows. The device's own control bar
       switches between them for the session; this is where the session starts.
 
+  - key: deviceSurface
+    label: Where the virtual device opens
+    type: enum
+    default: tab
+    options: [tab, drawer]
+    description: >-
+      An editor tab, or the right drawer beside the editor. The drawer keeps the device on screen
+      while you work in a file, which is what watching an app react to a change actually looks like;
+      a tab gives it the whole width, which is what a tablet profile wants. Only ever one of the two
+      — the device is a real embedded surface with one guest behind it, so JCode moves it rather than
+      drawing it twice.
+
   - key: openLayoutsInDesigner
     label: Open layouts in the designer
     type: boolean
