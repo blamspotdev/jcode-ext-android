@@ -19,10 +19,28 @@ configured in the runtime — the JDK, Android SDK, and Gradle used by `./gradle
 - **Gradle** — Android/Gradle DSL coloring/completions (`plugins`, `android`,
   `dependencies`, `defaultConfig`, `buildTypes`, …) with `android { }` and
   `dependencies { }` helpers.
-- **`android-app` template** — scaffolds a minimal but real Kotlin Android app:
-  root + `:app` Gradle module, `AndroidManifest.xml`, `MainActivity`, a
-  `ConstraintLayout` screen, `strings.xml`, and a **Build APK** task
-  (`./gradlew :app:assembleDebug`).
+- **`android-app` template** — scaffolds Google's own **Empty Activity (Compose)**
+  project: Compose, Navigation, a ViewModel, a repository and an instrumented
+  test, plus a **Build APK** task (`:app:assembleDebug`).
+
+  It is not written here. The Android SDK's `build;templates` package ships
+  Android Studio's project templates, and each is a real project tree plus a
+  `.template/template-definition.json` saying how to turn it into somebody's
+  project — arguments, the SDK packages it needs, and an ordered list of
+  `string-replace` / `rename-file` transformations. `apply-sdk-template.py`
+  implements that format, so the template stays Google's and tracks AGP and
+  Compose versions without anyone here maintaining it. Install **Android Project
+  Templates** in the Android SDK Manager first; the scaffold says so if it is
+  missing rather than accepting its licence on your behalf.
+
+  Two deliberate departures. `compileSdk` is not offered as a choice — it is
+  whatever this device's `aapt2` can read, which the SDK install records in
+  `jcode-compile-sdk.txt`; a higher one scaffolds perfectly and then fails every
+  build inside resource linking. And the recipe fixes `namespace` in
+  `app/build.gradle.kts` afterwards, because the definition's glob for that
+  replacement is `**/*.kt`, which does not match `.kts` — so it rewrites
+  `applicationId` and leaves `namespace` at `com.example.myapplication`, giving a
+  project whose R class lands in a package its own sources never import.
 - **Build helpers** — one-tap Gradle tasks and a project check, below.
 
 ## Building a project you cloned

@@ -246,6 +246,22 @@ internal object SdkManagerApply {
             appendLine("echo '$PHASE_MARK Removing ${path.replace("'", "")} $PHASE_MARK' >> $LOG")
             appendLine(sdkmanager(listOf("--uninstall", path), redirect = ">> $LOG 2>&1"))
         }
+        // The NDK's own host binaries are x86-64, and the patch below replaces them with the
+        // distro's LLVM ones — but only if the distro has any. They arrive with the C/C++ pack,
+        // which an Android project has no reason to install, so an NDK fetched from this page can
+        // land next to nothing that can strip a .so and every build then dies in
+        // StripDebugSymbolsRunnable. Installed here rather than with the SDK because it is ~115MB
+        // that only an NDK makes necessary, and most people never install one.
+        if (install.any(::isNdk)) {
+            // One glob, not two operands: `ls a b` fails when *either* is missing, so naming both the
+            // plain and the versioned spelling would reinstall on every NDK even with llvm-strip-18
+            // already there. Unmatched, the glob stays literal and ls fails, which is the answer.
+            appendLine("if ! ls /usr/bin/llvm-strip* >/dev/null 2>&1; then")
+            appendLine("  echo '$PHASE_MARK Installing the LLVM tools the NDK needs $PHASE_MARK' >> $LOG")
+            appendLine("  export DEBIAN_FRONTEND=noninteractive")
+            appendLine("  apt-get install -y llvm >> $LOG 2>&1 || { apt-get update >> $LOG 2>&1; apt-get install -y llvm >> $LOG 2>&1; } || true")
+            appendLine("fi")
+        }
         // Google ships an x86-64 aapt2; this swaps the ARM build back in over whatever was just
         // downloaded. Without it a freshly installed build-tools is one no build on this device can
         // use, and the failure surfaces much later, inside resource linking.
@@ -256,6 +272,9 @@ internal object SdkManagerApply {
         appendLine("echo '$PHASE_MARK Done $PHASE_MARK' >> $LOG")
         appendLine("tail -n $LOG_LINES $LOG")
     }
+
+    /** `ndk;28.2.13676358` and the long-deprecated `ndk-bundle` are the only two spellings. */
+    private fun isNdk(path: String): Boolean = path == "ndk-bundle" || path.startsWith("ndk;")
 
     /** One cheap read of both things the page wants: how much is staged, and the newest log. */
     private fun watchScript(androidHome: String): String = buildString {

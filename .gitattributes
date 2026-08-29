@@ -8,5 +8,6 @@
 # They are LF in this checkout today, which is luck rather than policy: nothing has re-cloned this
 # repo on a machine with autocrlf on. `eol=lf` makes it policy.
 *.sh text eol=lf
+*.py text eol=lf
 *.yaml text eol=lf
 *.yml text eol=lf
