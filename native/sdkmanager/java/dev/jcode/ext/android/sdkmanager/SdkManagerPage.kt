@@ -28,6 +28,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TriStateCheckbox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -243,7 +244,9 @@ private suspend fun apply(
  *
  * Android's packages come with terms, and `sdkmanager` will happily take a stream of confirmations
  * without anybody reading them. That is not consent, so the text is put on the screen and the
- * install waits behind a decision.
+ * install waits behind a decision — an explicit one: Accept stays dead until the terms have been
+ * scrolled to their end, so nobody agrees by reflex on the way to a download. Terms short enough to
+ * fit without scrolling are already read to the end, and enable it straight away.
  */
 @Composable
 private fun LicenceDialog(
@@ -251,6 +254,8 @@ private fun LicenceDialog(
     onAccept: () -> Unit,
     onDecline: () -> Unit,
 ) {
+    val terms = rememberScrollState()
+    val readToEnd by remember { derivedStateOf { terms.value >= terms.maxValue } }
     AlertDialog(
         onDismissRequest = onDecline,
         title = {
@@ -260,30 +265,51 @@ private fun LicenceDialog(
             )
         },
         text = {
-            Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
+            Column {
                 Text(
                     "These packages are covered by terms you have not accepted yet. Nothing is " +
                         "downloaded until you agree to them.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                licences.forEach { licence ->
+                // Framed top and bottom, so the terms read as a box that scrolls rather than as text
+                // running into the paragraph above it once it has moved.
+                HorizontalDivider(modifier = Modifier.padding(vertical = Space.sm))
+                Column(
+                    modifier = Modifier
+                        .weight(1f, fill = false)
+                        .verticalScroll(terms),
+                ) {
+                    licences.forEach { licence ->
+                        Text(
+                            text = licence.id,
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.SemiBold,
+                            modifier = Modifier.padding(top = Space.sm),
+                        )
+                        Text(
+                            text = licence.text,
+                            style = MaterialTheme.typography.labelSmall,
+                            fontFamily = FontFamily.Monospace,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+                if (!readToEnd) {
+                    HorizontalDivider(modifier = Modifier.padding(top = Space.sm))
                     Text(
-                        text = licence.id,
+                        text = if (licences.size == 1) "Scroll to the end of the licence to accept it."
+                        else "Scroll to the end of the licences to accept them.",
                         style = MaterialTheme.typography.labelSmall,
-                        fontWeight = FontWeight.SemiBold,
-                        modifier = Modifier.padding(top = Space.sm),
-                    )
-                    Text(
-                        text = licence.text,
-                        style = MaterialTheme.typography.labelSmall,
-                        fontFamily = FontFamily.Monospace,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(top = Space.sm),
                     )
                 }
             }
         },
-        confirmButton = { CompactFilledButton(text = "Accept", onClick = onAccept) },
+        confirmButton = {
+            CompactFilledButton(text = "Accept", onClick = onAccept, enabled = readToEnd)
+        },
         dismissButton = { CompactOutlinedButton(text = "Decline", onClick = onDecline) },
     )
 }
