@@ -89,13 +89,14 @@ internal fun SdkManagerPage(
     var licences by remember { mutableStateOf<List<SdkManagerApply.Licence>>(emptyList()) }
     var checkingLicences by remember { mutableStateOf(false) }
 
-    suspend fun reload() {
+    suspend fun reload(): SdkManagerCatalog.Snapshot? {
         loading = true
         SdkManagerCatalog.probe(host)
             .onSuccess { snapshot = it; failure = null }
             .onFailure { failure = it }
         pending = emptyMap()
         loading = false
+        return snapshot
     }
 
     LaunchedEffect(host) { reload() }
@@ -231,13 +232,39 @@ private suspend fun apply(
     accepted: Boolean,
     onProgress: (SdkManagerApply.Progress?) -> Unit,
     onSnackbar: (String) -> Unit,
-    onDone: suspend () -> Unit,
+    onDone: suspend () -> SdkManagerCatalog.Snapshot?,
 ) {
-    SdkManagerApply.run(host, androidHome, install, remove, accepted) { onProgress(it) }
-        .onFailure { onSnackbar(it.message ?: "The changes did not apply.") }
-    onDone()
-    onSnackbar("Re-read the SDK — the table shows what is on disk, not what sdkmanager reported.")
+    val failure = SdkManagerApply.run(host, androidHome, install, remove, accepted) { onProgress(it) }
+        .exceptionOrNull()
+    val after = onDone()
+    onSnackbar(failure?.message ?: outcome(install, remove, after))
 }
+
+/**
+ * What the apply left behind, counted off the re-read SDK rather than off the exit code.
+ *
+ * `sdkmanager` reports success for work it did not do — most reliably when its own update has
+ * replaced it with the x86-64 shim — so "installed" here means the package is on disk now, and a
+ * count short of what was asked for is the honest answer rather than a failure to report.
+ */
+private fun outcome(
+    install: List<String>,
+    remove: List<String>,
+    after: SdkManagerCatalog.Snapshot?,
+): String {
+    if (after == null) return "The changes ran. Refresh to see what landed."
+    val onDisk = after.packages.filter { it.installed }.map { it.path }.toSet()
+    val parts = buildList {
+        if (install.isNotEmpty()) add(counted("Installed", install.count { it in onDisk }, install.size))
+        if (remove.isNotEmpty()) add(counted("removed", remove.count { it !in onDisk }, remove.size))
+    }
+    if (parts.isEmpty()) return "Nothing to change."
+    return parts.joinToString(", ").replaceFirstChar { it.uppercase() } + "."
+}
+
+private fun counted(verb: String, done: Int, asked: Int): String =
+    if (done == asked) "$verb $asked ${if (asked == 1) "package" else "packages"}"
+    else "$verb $done of $asked"
 
 /**
  * The SDK licence, shown before anything behind it is installed.
