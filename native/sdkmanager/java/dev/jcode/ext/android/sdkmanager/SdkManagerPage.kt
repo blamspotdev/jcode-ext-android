@@ -581,7 +581,7 @@ private fun rowsFor(
         paths = listOf(p.path),
         installedPaths = if (p.installed) setOf(p.path) else emptySet(),
         update = p.update != null,
-        unusable = SdkManagerCatalog.unusable(p, snap.aapt2Ceiling),
+        unusable = SdkManagerCatalog.unusable(p, snap),
         indent = indent,
     )
 
@@ -602,7 +602,7 @@ private fun rowsFor(
                     paths = pkgs.map { it.path },
                     installedPaths = pkgs.filter { it.installed }.map { it.path }.toSet(),
                     update = pkgs.any { it.update != null },
-                    unusable = platform?.let { SdkManagerCatalog.unusable(it, snap.aapt2Ceiling) },
+                    unusable = platform?.let { SdkManagerCatalog.unusable(it, snap) },
                     expandable = pkgs.size > 1,
                     expanded = key in open,
                 )
@@ -632,7 +632,7 @@ private fun rowsFor(
                     paths = paths,
                     installedPaths = installed.map { it.path }.toSet(),
                     update = pkgs.any { it.update != null },
-                    unusable = SdkManagerCatalog.unusable(face, snap.aapt2Ceiling),
+                    unusable = SdkManagerCatalog.unusable(face, snap),
                     expandable = pkgs.size > 1,
                     expanded = key in open,
                 )

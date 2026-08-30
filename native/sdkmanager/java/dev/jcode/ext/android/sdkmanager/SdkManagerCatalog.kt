@@ -39,6 +39,15 @@ internal object SdkManagerCatalog {
         val packages: List<Package>,
         val aapt2Ceiling: Int,
         val androidHome: String,
+        /**
+         * Whether the SDK's own `android` CLI is a binary this machine can execute.
+         *
+         * False everywhere today: Google publishes that binary for x86-64 Linux and arm64 macOS, and
+         * nothing else, so on an arm64 phone it cannot run — which is the whole reason cmdline-tools
+         * is held at 22.0. Measured rather than assumed, so the day a linux-arm64 build ships this
+         * turns true on its own.
+         */
+        val nativeAndroidCli: Boolean = false,
     )
 
     /** Why a package this device can see is one it must not install. */
@@ -68,14 +77,24 @@ internal object SdkManagerCatalog {
     /** The last cmdline-tools revision whose `sdkmanager` is the real Java launcher. */
     private const val LAST_GOOD_CMDLINE_TOOLS = 22.0
 
-    /** Whether [pkg] is one this device must not install, and why. */
-    fun unusable(pkg: Package, ceiling: Int): Unusable? {
+    /**
+     * Whether [pkg] is one this device must not install, and why.
+     *
+     * The cmdline-tools cap is a measurement, not a rule. What makes 23.0 unusable is that the
+     * `android` binary its `sdkmanager` shim calls is published for x86-64 only, and Google ships no
+     * linux-arm64 build of it — the one `aarch64` archive in their manifest is macOS. So the cap
+     * asks [Snapshot.nativeAndroidCli] whether that binary actually runs here rather than assuming
+     * it never will: on the day an arm64 build appears, the update stops being a trap and this stops
+     * refusing it, without anybody editing a version number.
+     */
+    fun unusable(pkg: Package, snapshot: Snapshot): Unusable? {
         if (pkg.family == "platforms") {
             val api = pkg.path.substringAfter("android-", "").ifBlank { return null }
             val major = api.substringBefore('.').toIntOrNull() ?: return null
-            return if (major > ceiling) Unusable.PlatformTooNew(api, ceiling) else null
+            return if (major > snapshot.aapt2Ceiling) Unusable.PlatformTooNew(api, snapshot.aapt2Ceiling) else null
         }
         if (pkg.family == "cmdline-tools") {
+            if (snapshot.nativeAndroidCli) return null
             // The revision of the *update*, when there is one; otherwise what is installed. Only a
             // move past the cap is refused — being on 22.0 is the supported state, not a fault.
             val revision = (pkg.update ?: pkg.version).substringBefore('-').toDoubleOrNull() ?: return null
@@ -120,11 +139,14 @@ internal object SdkManagerCatalog {
             ?.trim().orEmpty()
         val ceiling = text.lineSequence().firstNotNullOfOrNull { it.substringAfter(MARKER_CEILING, "").ifBlank { null } }
             ?.trim()?.toIntOrNull() ?: DEFAULT_CEILING
+        val nativeCli = text.lineSequence()
+            .firstNotNullOfOrNull { it.substringAfter(MARKER_ANDROID_CLI, "").ifBlank { null } }
+            ?.trim() == "yes"
         val packages = parse(text)
         if (packages.isEmpty()) {
             return Result.failure(IllegalStateException("sdkmanager listed no packages:\n" + text.takeLast(TAIL)))
         }
-        return Result.success(Snapshot(packages, ceiling, home))
+        return Result.success(Snapshot(packages, ceiling, home, nativeCli))
     }
 
     /** The SDK is not installed at all — a different thing from a failed read, and said differently. */
@@ -193,6 +215,7 @@ internal object SdkManagerCatalog {
     private const val MARKER_NO_SDK = "JCODE_NO_SDK"
     private const val MARKER_HOME = "JCODE_HOME="
     private const val MARKER_CEILING = "JCODE_CEILING="
+    private const val MARKER_ANDROID_CLI = "JCODE_ANDROID_CLI="
 
     /** No aapt2 found: nothing known to refuse, so refuse nothing. */
     private const val DEFAULT_CEILING = 9999
@@ -225,6 +248,22 @@ internal object SdkManagerCatalog {
           esac
         fi
         echo "$MARKER_CEILING${'$'}CEILING"
+
+        # Can the SDK's own `android` CLI run here? Bytes 18-19 of an ELF header are its machine —
+        # 0xb7 aarch64, 0x3e x86-64 — and a binary built for another one fails to exec, which is
+        # exactly how cmdline-tools 23.0 turns sdkmanager into a silent no-op. Checked before running
+        # anything, so a wrong-architecture binary is never handed to the loader at all, and then
+        # actually run, because matching the machine is necessary and not sufficient.
+        CLI="${'$'}ANDROID_HOME/cmdline-tools/latest/bin/android"
+        NATIVE=no
+        if [ -x "${'$'}CLI" ]; then
+          case "${'$'}(od -An -tx1 -j18 -N2 "${'$'}CLI" 2>/dev/null | tr -d ' \n')" in
+            b700) [ "${'$'}(uname -m)" = aarch64 ] && NATIVE=maybe ;;
+            3e00) [ "${'$'}(uname -m)" = x86_64 ] && NATIVE=maybe ;;
+          esac
+          [ "${'$'}NATIVE" = maybe ] && { timeout 5 "${'$'}CLI" --version >/dev/null 2>&1 && NATIVE=yes || NATIVE=no; }
+        fi
+        echo "$MARKER_ANDROID_CLI${'$'}NATIVE"
 
         JH="${'$'}(dirname "${'$'}(dirname "${'$'}(readlink -f "${'$'}(command -v javac)")")")"
         # Owned by the runtime user, so read as the runtime user. `< /dev/null` and never `yes |`:
