@@ -34,6 +34,7 @@ const gradlew = resolve(win ? 'gradlew.bat' : 'gradlew');
 // extension.yaml is a mismatch somebody can see rather than a load failure at runtime.
 const MODULES = {
   designer: 'native/designer/build/outputs/apk/release/designer-release-unsigned.apk',
+  newproject: 'native/newproject/build/outputs/apk/release/newproject-release-unsigned.apk',
   sdkmanager: 'native/sdkmanager/build/outputs/apk/release/sdkmanager-release-unsigned.apk',
   vdevice: 'native/vdevice/build/outputs/apk/release/vdevice-release-unsigned.apk',
 };

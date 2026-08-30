@@ -1,6 +1,10 @@
 id: android-app
 name: Android App
 description: An Empty Activity Compose app, scaffolded from the Android SDK's own project template — Compose, Navigation, a ViewModel and a test. Needs the Android SDK and its "Android Project Templates" package.
+# The variants are a gallery, not a dropdown: which kind of app this is going to be is a decision
+# made by looking, and JCode's own configure step has no way to show one. It gets the name and hands
+# over to this pack's view, which draws the gallery and scaffolds from it.
+gallery: newAndroidProject
 requires:
   - android-prereqs
   - android-sdk

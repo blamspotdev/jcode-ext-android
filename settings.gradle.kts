@@ -23,7 +23,8 @@ rootProject.name = "jcode-ext-android"
 // The Gradle root is the repository root rather than `native/`, so `native/` holds the three
 // modules and nothing else: no wrapper, no jars, no build state. Their directories stay where they
 // are; only the project paths are declared here.
-include(":designer", ":sdkmanager", ":vdevice")
+include(":designer", ":newproject", ":sdkmanager", ":vdevice")
 project(":designer").projectDir = file("native/designer")
+project(":newproject").projectDir = file("native/newproject")
 project(":sdkmanager").projectDir = file("native/sdkmanager")
 project(":vdevice").projectDir = file("native/vdevice")

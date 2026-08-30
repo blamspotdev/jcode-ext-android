@@ -16,7 +16,10 @@ api:
   # `exec` is the Android SDK Manager's: `sdkmanager` is a real program in the Linux runtime and
   # the only way to ask it what is installed, or to install anything, is to run it. It appears on
   # the Permissions screen as "Run commands in the Linux runtime", which is exactly what it is.
-  capabilities: [config, exec]
+  # `workbench` is the New Project wizard's: it creates a project in the workspace and then opens
+  # it, and closes its own dialog afterwards. Without it those calls are refused and the wizard
+  # scaffolds a project it cannot show you — which is exactly what it did before this line existed.
+  capabilities: [config, exec, workbench]
 
 requires:
   # The Kotlin Dev Pack requires the Kotlin LSP itself, so Android gets it transitively. The Java
@@ -177,6 +180,17 @@ entry:
       class: dev.jcode.ext.android.sdkmanager.SdkManagerExtension
       abi: 3
       views: [sdkmanager]
+    # The New Project wizard. Its own library for the same reason: a surface touched once per
+    # project has no business being re-dexed whenever the SDK manager changes.
+    #
+    # Its `views` id is what the android-app template's `gallery:` names. JCode's New Project dialog
+    # asks for the project's name, opens the view named there and steps aside; the name rides along
+    # after a colon (`newAndroidProject:MyApp`), so the route is the part in front of it.
+    - id: newproject
+      apk: lib/newproject.apk
+      class: dev.jcode.ext.android.newproject.NewProjectExtension
+      abi: 3
+      views: [newAndroidProject]
     # An APK, and the only one that has to be. The status bar, quick-settings icons and permission
     # prompt are real drawables, the ids its views carry are what `uiautomator dump` reports and an
     # agent addresses, and the device's own system apps ride along as ~700 KB of assets. A dex
