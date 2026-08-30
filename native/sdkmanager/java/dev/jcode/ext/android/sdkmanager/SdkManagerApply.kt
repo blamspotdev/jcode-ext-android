@@ -136,8 +136,7 @@ internal object SdkManagerApply {
                 val staged = text.lineSequence()
                     .firstNotNullOfOrNull { it.substringAfter(MARKER_STAGED, "").ifBlank { null } }
                     ?.trim()?.toLongOrNull()
-                val lines = text.substringAfter(MARKER_LOG, "").lines()
-                    .map { it.trimEnd() }.filter { it.isNotBlank() }.takeLast(LOG_LINES)
+                val lines = logLines(text)
                 val percent = if (expected > 0 && staged != null) {
                     // Monotonic: `.temp` shrinks again as an archive is unpacked, and a bar that ran
                     // backwards would read as a stall.
@@ -152,9 +151,22 @@ internal object SdkManagerApply {
 
         val result = work.await()
         watcher.cancel()
+        // One more read, now that there is nothing left to write. The watcher polls on a timer, so
+        // its last snapshot can stop a second and a half short of the end — and the end is where
+        // sdkmanager says what it skipped and why, having exited 0 like it always does. The page
+        // keeps this on screen after the work is over, so it had better be the real last word.
+        val last = host.exec(watchScript(androidHome), timeoutMs = WATCH_TIMEOUT_MS)
+        if (last.error == null) {
+            logLines(last.output).takeIf { it.isNotEmpty() }?.let { onProgress(Progress(phaseOf(it), 100, it)) }
+        }
         if (result.error != null) return@coroutineScope Result.failure(IllegalStateException(result.error))
         Result.success(result.output.lines().takeLast(LOG_LINES).joinToString("\n"))
     }
+
+    /** The tail of the log the apply writes, out of one watch snapshot. */
+    private fun logLines(text: String): List<String> =
+        text.substringAfter(MARKER_LOG, "").lines()
+            .map { it.trimEnd() }.filter { it.isNotBlank() }.takeLast(LOG_LINES)
 
     /**
      * The percentage sdkmanager prints for whatever it is doing right now.

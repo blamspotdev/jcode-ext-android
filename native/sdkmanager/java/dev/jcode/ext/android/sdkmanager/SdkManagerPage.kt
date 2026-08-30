@@ -92,6 +92,9 @@ internal fun SdkManagerPage(
     var confirming by remember { mutableStateOf<Change?>(null) }
     /** Work Apply does before the apply itself: pricing the change, then reading the licences. */
     var preparing by remember { mutableStateOf(false) }
+    /** What the finished apply left behind. Set when the work is over and the pane is waiting to be
+     *  dismissed, so the result and the log that produced it stay on screen until they are read. */
+    var finished by remember { mutableStateOf<String?>(null) }
 
     suspend fun reload(): SdkManagerCatalog.Snapshot? {
         loading = true
@@ -119,7 +122,12 @@ internal fun SdkManagerPage(
 
         val snap = snapshot
         when {
-            progress != null -> ApplyProgress(progress!!, Modifier.weight(1f))
+            progress != null -> ApplyProgress(
+                progress = progress!!,
+                finished = finished,
+                onDismiss = { progress = null; finished = null },
+                modifier = Modifier.weight(1f),
+            )
 
             failure is SdkManagerCatalog.NoSdkInstalled -> ManagerNoticeCard(
                 title = "The Android SDK is not installed",
@@ -228,7 +236,8 @@ internal fun SdkManagerPage(
                             }
                         }
                         apply(host, snap.androidHome, install, remove, accepted = false,
-                            onProgress = { progress = it }, onSnackbar = onSnackbar, onDone = { progress = null; reload() })
+                            onProgress = { progress = it }, onReload = { reload() },
+                            onFinished = { finished = it })
                     }
                 }
             },
@@ -248,7 +257,8 @@ internal fun SdkManagerPage(
                 if (snap != null && terms.isNotEmpty()) {
                     scope.launch {
                         apply(host, snap.androidHome, install, remove, accepted = true,
-                            onProgress = { progress = it }, onSnackbar = onSnackbar, onDone = { progress = null; reload() })
+                            onProgress = { progress = it }, onReload = { reload() },
+                            onFinished = { finished = it })
                     }
                 }
             },
@@ -256,7 +266,14 @@ internal fun SdkManagerPage(
     }
 }
 
-/** Runs the apply and reports what actually landed, rather than what the exit code claimed. */
+/**
+ * Runs the apply and reports what actually landed, rather than what the exit code claimed.
+ *
+ * The report goes to [onFinished] rather than to a snackbar: an install runs for minutes, nobody
+ * watches every second of it, and a line that shows for three seconds and then takes the screen away
+ * with it is a result nobody reads. The progress pane stays up, holding its log, until it is
+ * dismissed.
+ */
 private suspend fun apply(
     host: NativeHost,
     androidHome: String,
@@ -264,13 +281,13 @@ private suspend fun apply(
     remove: List<String>,
     accepted: Boolean,
     onProgress: (SdkManagerApply.Progress?) -> Unit,
-    onSnackbar: (String) -> Unit,
-    onDone: suspend () -> SdkManagerCatalog.Snapshot?,
+    onReload: suspend () -> SdkManagerCatalog.Snapshot?,
+    onFinished: (String) -> Unit,
 ) {
     val failure = SdkManagerApply.run(host, androidHome, install, remove, accepted) { onProgress(it) }
         .exceptionOrNull()
-    val after = onDone()
-    onSnackbar(failure?.message ?: outcome(install, remove, after))
+    val after = onReload()
+    onFinished(failure?.message ?: outcome(install, remove, after))
 }
 
 /**
@@ -959,29 +976,48 @@ private fun Footer(
     }
 }
 
+/**
+ * The apply, while it runs and once it has.
+ *
+ * [finished] ends it rather than the pane disappearing on its own. An install runs for minutes with
+ * nobody watching the whole of it, and returning to the table the instant it ended took away both
+ * the result and the log that explains it — including the lines where `sdkmanager` says, at exit 0,
+ * that it skipped something. So the pane waits: it says what landed, and the log stays where it is
+ * until somebody has read it and dismissed it.
+ */
 @Composable
-private fun ApplyProgress(progress: SdkManagerApply.Progress, modifier: Modifier = Modifier) {
+private fun ApplyProgress(
+    progress: SdkManagerApply.Progress,
+    finished: String?,
+    onDismiss: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
     Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(Space.s)) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Space.ms)) {
             Text(
-                text = progress.phase + "…",
+                text = if (finished != null) "Done" else progress.phase + "…",
                 style = MaterialTheme.typography.bodySmall,
+                fontWeight = if (finished != null) FontWeight.SemiBold else null,
                 modifier = Modifier.weight(1f),
             )
-            progress.percent?.let {
-                Text("$it%", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            if (finished == null) {
+                progress.percent?.let {
+                    Text("$it%", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
             }
         }
         // Determinate whenever the manifest told us how big this is, because "43%" is worth far more
         // than a spinner on a download that can run for ten minutes — and indeterminate when it did
         // not, rather than a bar that invents a number.
-        if (progress.percent != null) {
-            LinearProgressIndicator(
-                progress = { progress.percent / 100f },
-                modifier = Modifier.fillMaxWidth(),
-            )
-        } else {
-            LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+        if (finished == null) {
+            if (progress.percent != null) {
+                LinearProgressIndicator(
+                    progress = { progress.percent / 100f },
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            } else {
+                LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+            }
         }
         Surface(
             modifier = Modifier.fillMaxWidth().weight(1f),
@@ -1013,6 +1049,21 @@ private fun ApplyProgress(progress: SdkManagerApply.Progress, modifier: Modifier
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
+            }
+        }
+        if (finished != null) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(Space.ms, Alignment.End),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = finished,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.weight(1f, fill = false),
+                )
+                CompactFilledButton(text = "OK", onClick = onDismiss)
             }
         }
     }
