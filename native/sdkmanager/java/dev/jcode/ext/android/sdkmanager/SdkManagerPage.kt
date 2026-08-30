@@ -506,13 +506,23 @@ private fun statusRank(row: PackageRow): Int = when {
 /**
  * Flips a row.
  *
+ * Flipped from what the checkbox is SHOWING, not from what is on disk. Reading `row.state` here made
+ * the control one-way: on-disk state does not change until Apply runs, so a second tap computed the
+ * same intent as the first and armed it again. Ticking something to install and thinking better of
+ * it re-ticked it; unticking an installed package and changing your mind re-queued the removal.
+ * Nothing could be taken back except Discard, which takes back everything.
+ *
+ * [pendingState] is that displayed state -- what is pending, over what is installed -- and with no
+ * pending entries it equals [PackageRow.state], so a first tap behaves exactly as it did.
+ *
  * Only the packages that would actually change are recorded: asking to install one already installed
  * is not a change, and handing it to `sdkmanager` makes it download the thing again. So an entry is
  * dropped as soon as the desired state matches what is on disk, which is also what makes "Discard"
- * and the pending count mean something.
+ * and the pending count mean something -- and is what lets a tap back to the original state clear
+ * the row rather than record a no-op.
  */
 private fun toggled(pending: Map<String, Boolean>, row: PackageRow): Map<String, Boolean> {
-    val wantInstalled = row.state != ToggleableState.On
+    val wantInstalled = pendingState(row, pending) != ToggleableState.On
     val next = pending.toMutableMap()
     for (path in row.paths) {
         if (wantInstalled == (path in row.installedPaths)) next.remove(path) else next[path] = wantInstalled
