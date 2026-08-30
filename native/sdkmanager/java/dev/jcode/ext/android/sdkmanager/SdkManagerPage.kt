@@ -36,6 +36,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.state.ToggleableState
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -87,7 +88,10 @@ internal fun SdkManagerPage(
     /** Licences the SDK wants agreed to before the pending installs can go ahead. Shown, not
      *  assumed: accepting a licence on somebody's behalf is not accepting it. */
     var licences by remember { mutableStateOf<List<SdkManagerApply.Licence>>(emptyList()) }
-    var checkingLicences by remember { mutableStateOf(false) }
+    /** The priced change waiting to be confirmed, between Apply and anything happening. */
+    var confirming by remember { mutableStateOf<Change?>(null) }
+    /** Work Apply does before the apply itself: pricing the change, then reading the licences. */
+    var preparing by remember { mutableStateOf(false) }
 
     suspend fun reload(): SdkManagerCatalog.Snapshot? {
         loading = true
@@ -167,29 +171,23 @@ internal fun SdkManagerPage(
                 Footer(
                     pending = pending,
                     onDiscard = { pending = emptyMap() },
-                    busy = checkingLicences,
+                    busy = preparing,
                     onApply = {
-                        val install = pending.filterValues { it }.keys.toList()
-                        val remove = pending.filterValues { !it }.keys.toList()
+                        // Apply prices the change and asks, rather than starting it. A tick in a
+                        // table is easy to leave behind by accident, and what follows it is a
+                        // download measured in hundreds of megabytes.
                         scope.launch {
-                            // Nothing is installed until the terms behind it have been shown and
-                            // agreed to. A removal-only apply asks nothing, because it agrees to
-                            // nothing.
-                            if (install.isNotEmpty()) {
-                                checkingLicences = true
-                                val pendingLicences = SdkManagerApply.pendingLicences(host, snap.androidHome)
-                                    .getOrElse {
-                                        onSnackbar(it.message ?: "Could not read the SDK licences.")
-                                        emptyList()
-                                    }
-                                checkingLicences = false
-                                if (pendingLicences.isNotEmpty()) {
-                                    licences = pendingLicences
-                                    return@launch
-                                }
-                            }
-                            apply(host, snap.androidHome, install, remove, accepted = false,
-                                onProgress = { progress = it }, onSnackbar = onSnackbar, onDone = { progress = null; reload() })
+                            preparing = true
+                            val byPath = snap.packages.associateBy { it.path }
+                            val install = pending.filterValues { it }.keys.toList()
+                            val sizes = SdkManagerApply.expectedBytes(host, snap.androidHome, install)
+                            preparing = false
+                            confirming = Change(
+                                install = install.mapNotNull { byPath[it] },
+                                remove = pending.filterValues { !it }.keys.mapNotNull { byPath[it] },
+                                downloadBytes = sizes.values.sum(),
+                                unpriced = install.count { (sizes[it] ?: 0L) <= 0L },
+                            )
                         }
                     },
                 )
@@ -200,6 +198,41 @@ internal fun SdkManagerPage(
                 CircularProgressIndicator(modifier = Modifier.size(28.dp))
             }
         }
+    }
+
+    val confirmed = confirming
+    if (confirmed != null) {
+        val snap = snapshot
+        ConfirmChangeDialog(
+            change = confirmed,
+            onCancel = { confirming = null },
+            onConfirm = {
+                confirming = null
+                val install = confirmed.install.map { it.path }
+                val remove = confirmed.remove.map { it.path }
+                if (snap != null) {
+                    scope.launch {
+                        // Nothing is installed until the terms behind it have been shown and agreed
+                        // to. A removal-only apply asks nothing, because it agrees to nothing.
+                        if (install.isNotEmpty()) {
+                            preparing = true
+                            val pendingLicences = SdkManagerApply.pendingLicences(host, snap.androidHome)
+                                .getOrElse {
+                                    onSnackbar(it.message ?: "Could not read the SDK licences.")
+                                    emptyList()
+                                }
+                            preparing = false
+                            if (pendingLicences.isNotEmpty()) {
+                                licences = pendingLicences
+                                return@launch
+                            }
+                        }
+                        apply(host, snap.androidHome, install, remove, accepted = false,
+                            onProgress = { progress = it }, onSnackbar = onSnackbar, onDone = { progress = null; reload() })
+                    }
+                }
+            },
+        )
     }
 
     if (licences.isNotEmpty()) {
@@ -265,6 +298,101 @@ private fun outcome(
 private fun counted(verb: String, done: Int, asked: Int): String =
     if (done == asked) "$verb $asked ${if (asked == 1) "package" else "packages"}"
     else "$verb $done of $asked"
+
+/** What Apply is about to do, priced from the manifest, so it can be read before it starts. */
+private data class Change(
+    val install: List<SdkManagerCatalog.Package>,
+    val remove: List<SdkManagerCatalog.Package>,
+    /** What the manifest says the installs weigh; zero when it could not price any of them. */
+    val downloadBytes: Long,
+    /** How many of the installs it could not price, which the total is therefore short by. */
+    val unpriced: Int,
+)
+
+/**
+ * The change itself, named and priced, before a single byte moves.
+ *
+ * A checkbox is a small gesture and what follows one here is not: ticking a platform group arms
+ * five packages and most of a gigabyte, on a phone, over somebody's own data. So Apply stops and
+ * says what it is about to do, which is also the only place the sizes can be shown — the table has
+ * no room for them and they are worth reading exactly once, here.
+ */
+@Composable
+private fun ConfirmChangeDialog(
+    change: Change,
+    onCancel: () -> Unit,
+    onConfirm: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onCancel,
+        title = { Text("Confirm change") },
+        text = {
+            Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
+                if (change.install.isNotEmpty()) {
+                    ChangeList("The following components will be installed:", change.install)
+                }
+                if (change.remove.isNotEmpty()) {
+                    ChangeList("The following components will be removed:", change.remove)
+                }
+                if (change.install.isNotEmpty()) {
+                    Text(
+                        text = "Disk usage:",
+                        style = MaterialTheme.typography.bodySmall,
+                        modifier = Modifier.padding(top = Space.md),
+                    )
+                    Text(
+                        // The manifest prices downloads, not what they unpack to, and the two are
+                        // far apart for an SDK. Claiming a disk figure it does not have would be
+                        // worse than leaving the reader to judge from the download.
+                        text = "–  Estimated download size: " +
+                            (change.downloadBytes.takeIf { it > 0 }?.let(::formatBytes) ?: "not known"),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(top = Space.xs),
+                    )
+                    if (change.unpriced > 0) {
+                        Text(
+                            // Silence here would read as "63 MB" for a change that pulls several
+                            // gigabytes: Google publishes system images in a manifest of their own,
+                            // which the cache does not hold, and each of them is far bigger than
+                            // anything in the figure above.
+                            text = "–  ${change.unpriced} of these are not in the cached manifest, " +
+                                "so the real total is larger.",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(top = Space.xs),
+                        )
+                    }
+                }
+            }
+        },
+        confirmButton = { CompactFilledButton(text = "OK", onClick = onConfirm) },
+        dismissButton = { CompactOutlinedButton(text = "Cancel", onClick = onCancel) },
+    )
+}
+
+@Composable
+private fun ChangeList(title: String, packages: List<SdkManagerCatalog.Package>) {
+    Text(
+        text = title,
+        style = MaterialTheme.typography.bodySmall,
+        modifier = Modifier.padding(top = Space.sm),
+    )
+    packages.forEach {
+        Text(
+            text = "–  ${it.description} (revision ${it.version})",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(top = Space.xs),
+        )
+    }
+}
+
+/** Sizes as the SDK's own manifest means them: powers of 1024, one decimal, MB unless it is huge. */
+private fun formatBytes(bytes: Long): String {
+    val mb = bytes / (1024.0 * 1024.0)
+    return if (mb >= 1024) String.format("%.1f GB", mb / 1024) else String.format("%.1f MB", mb)
+}
 
 /**
  * The SDK licence, shown before anything behind it is installed.
@@ -859,9 +987,24 @@ private fun ApplyProgress(progress: SdkManagerApply.Progress, modifier: Modifier
             modifier = Modifier.fillMaxWidth().weight(1f),
             color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.12f),
         ) {
+            val log = rememberScrollState()
+            val slack = with(LocalDensity.current) { FOLLOW_SLACK.toPx() }
+            var following by remember { mutableStateOf(true) }
+            // The newest line is the one worth watching, and there are two hundred of them: left
+            // alone the log shows its first screenful for the whole install. So it follows the tail
+            // — and stops following the moment the reader scrolls up to read something that went
+            // past, until they scroll back down to the end.
+            LaunchedEffect(log.isScrollInProgress) {
+                if (!log.isScrollInProgress && log.maxValue != Int.MAX_VALUE) {
+                    following = log.value >= log.maxValue - slack
+                }
+            }
+            LaunchedEffect(progress.lines, following) {
+                if (following) log.scrollTo(log.maxValue)
+            }
             // sdkmanager's own output, because it is the only place a skipped package ever explains
             // itself — it exits 0 either way.
-            Column(modifier = Modifier.verticalScroll(rememberScrollState()).padding(Space.sm)) {
+            Column(modifier = Modifier.verticalScroll(log).padding(Space.sm)) {
                 progress.lines.forEach {
                     Text(
                         text = it,
@@ -874,6 +1017,9 @@ private fun ApplyProgress(progress: SdkManagerApply.Progress, modifier: Modifier
         }
     }
 }
+
+/** How far from the end still counts as watching the end, when deciding whether the log follows. */
+private val FOLLOW_SLACK = 48.dp
 
 /** The disclosure column, held open on every row so names start at one x whether or not the
  *  row has anything to open. */

@@ -23,10 +23,12 @@ import kotlinx.coroutines.withContext
  *    and ran nothing at all: measured, no log file, no process, a spinner over an empty pane. So the
  *    install is an ordinary long `exec` in its own coroutine, and a second, cheap `exec` tails the
  *    log beside it.
- *  * **`sdkmanager` prints its progress meter only to a terminal.** Piped, as it must be here, it
- *    emits nothing to parse — so the percentage comes from the bytes staged under
- *    `$ANDROID_HOME/.temp` against the size Google's manifest declares, the same measurement the
- *    Android SDK toolchain entry makes.
+ *  * **`sdkmanager`'s own meter measures the wrong thing.** It reaches the log, but it restarts at
+ *    every sub-task — fetching, computing, downloading, unzipping, each 0 to 100 — so a bar driven
+ *    by it would run the whole way four times over. The percentage instead comes from the bytes
+ *    staged under `$ANDROID_HOME/.temp` against the size Google's manifest declares, the same
+ *    measurement the Android SDK toolchain entry makes, and falls back to the meter only when that
+ *    manifest cache cannot price the packages.
  */
 internal object SdkManagerApply {
 
@@ -118,7 +120,7 @@ internal object SdkManagerApply {
         onProgress(Progress("Starting", null, emptyList()))
 
         // How many bytes the manifest says these are, so the download has a denominator.
-        val expected = if (install.isEmpty()) 0L else expectedBytes(host, androidHome, install)
+        val expected = if (install.isEmpty()) 0L else expectedBytes(host, androidHome, install).values.sum()
 
         val work = async(Dispatchers.IO) {
             host.exec(applyScript(androidHome, install, remove, licencesAccepted), timeoutMs = APPLY_TIMEOUT_MS)
@@ -142,7 +144,7 @@ internal object SdkManagerApply {
                     highest = maxOf(highest, ((staged * 1024 * 100) / expected).toInt().coerceIn(0, 99))
                     highest
                 } else {
-                    null
+                    reportedPercent(lines)
                 }
                 onProgress(Progress(phaseOf(lines), percent, lines))
             }
@@ -153,6 +155,20 @@ internal object SdkManagerApply {
         if (result.error != null) return@coroutineScope Result.failure(IllegalStateException(result.error))
         Result.success(result.output.lines().takeLast(LOG_LINES).joinToString("\n"))
     }
+
+    /**
+     * The percentage sdkmanager prints for whatever it is doing right now.
+     *
+     * Second choice, and only because the first can be unavailable: this figure restarts at every
+     * sub-task — a download reaches 100% and unzipping begins again at 0 — where the staged-bytes
+     * one runs once across the whole apply. It is here because the alternative, whenever the
+     * manifest cache cannot price the packages, was a bar that said nothing but "still going" for
+     * ten minutes while the log beside it counted perfectly good percentages.
+     */
+    private fun reportedPercent(lines: List<String>): Int? =
+        lines.asReversed()
+            .firstNotNullOfOrNull { REPORTED_PERCENT.find(it)?.groupValues?.get(1)?.toIntOrNull() }
+            ?.coerceIn(0, 100)
 
     /** What the log last announced, in words rather than a task name. */
     private fun phaseOf(lines: List<String>): String =
@@ -166,15 +182,26 @@ internal object SdkManagerApply {
      *
      * From the cached copy the Android SDK toolchain entry keeps, so it costs no network of its own;
      * zero when that cache is absent, which simply means no percentage rather than a wrong one.
+     *
+     * **The cache is found beside the SDK, not through its owner.** This asked `stat -c %U` who owns
+     * `$ANDROID_HOME` and read that user's home out of `passwd`. Under proot everything is owned by
+     * root, so the answer was always `/root/.cache/…`, the file was always missing, and the estimate
+     * was always zero — measured: no download percentage in any install, ever, on a bar that was
+     * meant to have one. The SDK lives in the home directory that holds the cache, so its parent is
+     * the answer; the rest are fallbacks for an SDK kept somewhere else.
      */
-    private suspend fun expectedBytes(host: NativeHost, androidHome: String, paths: List<String>): Long =
+    suspend fun expectedBytes(host: NativeHost, androidHome: String, paths: List<String>): Map<String, Long> =
         withContext(Dispatchers.IO) {
+            if (paths.isEmpty()) return@withContext emptyMap()
             val script = buildString {
-                appendLine("OWNER=\"\$(stat -c %U ${quote(androidHome)})\"")
-                appendLine("HOME_DIR=\"\$(getent passwd \"\$OWNER\" | cut -d: -f6)\"")
-                appendLine("XML=\"\$HOME_DIR/.cache/jcode/android-repo.xml\"")
-                appendLine("[ -f \"\$XML\" ] || { echo 0; exit 0; }")
-                appendLine("TOTAL=0")
+                appendLine("XML=\"\"")
+                appendLine(
+                    "for C in \"\$(dirname ${quote(androidHome)})/$CACHE_TAIL\" " +
+                        "\"\$HOME/$CACHE_TAIL\" /home/*/$CACHE_TAIL /root/$CACHE_TAIL; do",
+                )
+                appendLine("  [ -f \"\$C\" ] && { XML=\"\$C\"; break; }")
+                appendLine("done")
+                appendLine("[ -n \"\$XML\" ] || exit 0")
                 for (path in paths) {
                     // Each <remotePackage path="…"> block carries its archive's <size> before the
                     // next block starts, so the first size after the path belongs to that package.
@@ -182,11 +209,18 @@ internal object SdkManagerApply {
                         "S=\$(awk -v p='path=\"$path\"' 'index(\$0, p) { seen = 1 } " +
                             "seen && /<size>/ { sub(/.*<size>/, \"\"); sub(/<\\/size>.*/, \"\"); print; exit }' \"\$XML\")",
                     )
-                    appendLine("TOTAL=\$(( TOTAL + \${S:-0} ))")
+                    // One marked line per package, in order, so a package the manifest does not
+                    // carry — every system image, which Google publishes in a separate manifest —
+                    // comes back as a zero the caller can see rather than one folded into a total.
+                    appendLine("printf '$SIZE_MARK%s\\n' \"\${S:-0}\"")
                 }
-                appendLine("echo \$TOTAL")
             }
-            host.exec(script, timeoutMs = WATCH_TIMEOUT_MS).output.trim().lines().lastOrNull()?.toLongOrNull() ?: 0L
+            val sizes = host.exec(script, timeoutMs = WATCH_TIMEOUT_MS).output.lineSequence()
+                .map { it.trim() }
+                .filter { it.startsWith(SIZE_MARK) }
+                .mapNotNull { it.removePrefix(SIZE_MARK).toLongOrNull() }
+                .toList()
+            if (sizes.size != paths.size) emptyMap() else paths.zip(sizes).toMap()
         }
 
     /** POSIX single-quoting, so a package path can never be read as shell. */
@@ -309,4 +343,13 @@ internal object SdkManagerApply {
     private const val APPLY_TIMEOUT_MS = 45 * 60 * 1_000L
     private const val TAIL_BYTES = 8_000
     private const val LOG_LINES = 200
+
+    /** `[====      ] 17% Downloading platform-36_r02.zip...` — the number sdkmanager draws itself. */
+    private val REPORTED_PERCENT = Regex("""]\s*(\d{1,3})%""")
+
+    /** Where the Android SDK toolchain entry keeps Google's manifest, under whichever home it used. */
+    private const val CACHE_TAIL = ".cache/jcode/android-repo.xml"
+
+    /** Marks the size lines, so shell noise around them cannot be read as one. */
+    private const val SIZE_MARK = "JCODE_SIZE "
 }
