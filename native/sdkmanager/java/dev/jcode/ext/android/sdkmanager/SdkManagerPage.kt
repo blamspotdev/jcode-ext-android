@@ -559,7 +559,12 @@ private fun PackageTable(
                 modifier = Modifier.fillMaxWidth().padding(horizontal = Space.ms, vertical = Space.s),
                 horizontalArrangement = Arrangement.spacedBy(Space.s),
             ) {
+                // Both leading columns, or the heading does not sit over what it heads: the rows
+                // put a checkbox between the disclosure and the name, and without a spacer for it
+                // "Name" sat over the checkboxes with the names starting a checkbox-width to its
+                // right.
                 Box(modifier = Modifier.width(DISCLOSURE))
+                Box(modifier = Modifier.padding(start = Space.xxs).width(CHECKBOX))
                 HeaderCell("Name", 0, sort, onSort, Modifier.weight(1f))
                 columns.forEachIndexed { index, column ->
                     HeaderCell(column.label, index + 1, sort, onSort, Modifier.width(column.width))
@@ -780,6 +785,15 @@ private fun ApplyProgress(progress: SdkManagerApply.Progress, modifier: Modifier
 /** The disclosure column, held open on every row so names start at one x whether or not the
  *  row has anything to open. */
 private val DISCLOSURE = 20.dp
+
+/**
+ * The checkbox column, mirrored in the header so "Name" sits over the names.
+ *
+ * 40 rather than the 48 of a Material touch target: the checkbox is laid out inside its own minimum
+ * size and does not fill it, so 48 pushed the heading eight dp past the text it heads. Measured
+ * against the rendered table rather than derived, because the widget's own padding is what decides.
+ */
+private val CHECKBOX = 40.dp
 
 /**
  * What Android Studio calls an API level.

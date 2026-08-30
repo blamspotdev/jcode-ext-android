@@ -688,7 +688,12 @@ private fun HomeChrome(
         // and when the device fills the width there is no gutter to move them into. A corner
         // affordance has the same place to be whatever shape the device is, which is the point —
         // it costs the device's own screen nothing and stops moving around.
-        Box(modifier = Modifier.align(Alignment.TopEnd).padding(Space.xs)) {
+        //
+        // The LEADING corner, not the trailing one. The device draws its own wifi and signal icons
+        // at the trailing end of its status bar, and this sat straight on top of them — the dots ran
+        // through the signal bars. The leading end is empty and stays empty: the device deliberately
+        // shows no clock there, because the phone's own clock is one bar above it.
+        Box(modifier = Modifier.align(Alignment.TopStart).padding(Space.xs)) {
             // Named, not a trailing lambda: ToolbarAction's last parameter is `tint`, so a trailing
             // block binds to the colour rather than to the click.
             ToolbarAction(Icons.Rounded.MoreVert, "Device menu", onClick = { open = true })
