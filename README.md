@@ -165,19 +165,20 @@ one `entry.native` per extension: the **layout designer** (`designer/`) and the 
 (`vdevice/`), the container that runs a built APK inside JCode.
 
 ```sh
-npm run build     # runs native/gradlew assembleRelease and copies the three APKs into lib/
+npm run build     # runs native/gradlew assembleRelease and puts the three payloads in lib/
 ```
 
 or by hand:
 
 ```sh
 cd native && ./gradlew assembleRelease
-cp designer/build/outputs/apk/release/*-release-unsigned.apk ../lib/designer.apk
-cp sdkmanager/build/outputs/apk/release/*-release-unsigned.apk ../lib/sdkmanager.apk
 cp vdevice/build/outputs/apk/release/*-release-unsigned.apk ../lib/vdevice.apk
+# designer and sdkmanager ship as bare dex — unzip `classes.dex` OUT OF each module's APK, not out
+# of intermediates/, which holds the project's dex without its bundled libraries. `npm run build`
+# does this; by hand it is one `unzip -p … classes.dex > ../lib/<id>.dex` apiece.
 ```
 
-Unsigned is correct: JCode loads these APKs with a `DexClassLoader` and never installs them, so
+Unsigned is correct: JCode loads these with a `DexClassLoader` and never installs them, so
 nothing checks its signature. What *is* checked is the signature on the `.jext` around it —
 an extension shipping native code is refused unless the package itself was officially signed.
 While working on the device that rule is a real cost, so JCode has one way past it:

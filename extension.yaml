@@ -130,12 +130,18 @@ entry:
   # the container, ConstraintLayout rode along for all three though only the designer inflates it,
   # and `minSdk 33` was imposed by the container on two modules that do not need it.
   native:
-    # An archive rather than the bare dex this was going to be: the designer resolves no resources,
-    # but it *bundles* ConstraintLayout, and a bundled library's classes land in a dex of their own.
-    # Shipping one `classes.dex` would have dropped them -- silently, until the canvas tried to
-    # inflate a real ConstraintLayout. It declares no `views`; it is reached by its file claims.
+    # A bare `.dex`: the designer resolves no resources -- it parses layout XML itself and builds
+    # views in code -- so an archive around it would carry 25 KB of empty resource table.
+    #
+    # It does bundle ConstraintLayout, whose classes AGP keeps in a dex of their own under
+    # `intermediates/`. That is why build.mjs takes the dex out of the built APK and not out of the
+    # intermediates: the APK's `classes.dex` is the merged one, and the intermediate is the project
+    # alone. Shipping the wrong one drops ConstraintLayout silently, until the canvas tries to
+    # inflate a real one.
+    #
+    # It declares no `views`; it is reached by its file claims.
     - id: designer
-      apk: lib/designer.apk
+      dex: lib/designer.dex
       class: dev.jcode.ext.android.designer.DesignerExtension
       abi: 9
       claims:
@@ -166,20 +172,20 @@ entry:
           contains: "return"
           label: Show Designer
           icon: image
-    # The smallest of the three, and resource-free -- a bare dex would genuinely do here. It ships as
-    # an archive anyway, so that "what a module ships" is one answer rather than a per-module rule
-    # somebody has to re-derive whenever a dependency is added. The cost is an empty resource table.
+    # Also a bare `.dex`, and for the same reason: a table drawn entirely from JCode's own design
+    # system owns no drawable, no string and no id of its own.
     #
     # Its `views` id is the same string as its contributes.toolchainActions id -- the workbench opens
     # a contributed action by asking for the view named after it.
     - id: sdkmanager
-      apk: lib/sdkmanager.apk
+      dex: lib/sdkmanager.dex
       class: dev.jcode.ext.android.sdkmanager.SdkManagerExtension
       abi: 9
       views: [sdkmanager]
-    # An APK, unlike its neighbours: the status bar, quick-settings icons and permission prompt are
-    # real drawables, the ids its views carry are what `uiautomator dump` reports, and the device's
-    # own system apps ride along as assets. All of that needs a resource table.
+    # An APK, and the only one that has to be. The status bar, quick-settings icons and permission
+    # prompt are real drawables, the ids its views carry are what `uiautomator dump` reports and an
+    # agent addresses, and the device's own system apps ride along as ~700 KB of assets. A dex
+    # carries none of that, and `addAssetPath` needs an archive to attach.
     #
     # `guest` is loaded into the `:guest` process by JCode's GuestSessionService stub, which owns
     # that process because `android:process` can only be declared in a manifest. Declaring it is also

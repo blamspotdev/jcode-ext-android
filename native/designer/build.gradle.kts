@@ -5,12 +5,14 @@ plugins {
 }
 
 /**
- * The layout designer.
+ * The layout designer, shipped as a bare `.dex`.
  *
- * It resolves no resources -- it parses layout XML itself and builds views in code -- so its
- * resource table is empty. It still ships as an archive rather than a bare dex, because it bundles
- * ConstraintLayout and a bundled library's classes land in a dex of their own: one `classes.dex`
- * would have dropped them, silently, until the canvas tried to inflate a real ConstraintLayout.
+ * It resolves no resources -- it parses layout XML itself and builds views in code -- so an archive
+ * around its dex would carry an empty resource table and nothing else.
+ *
+ * The dex that ships is the one inside this module's APK, not the one under `intermediates/`: AGP
+ * keeps a bundled library's classes in a dex of their own until packaging, and ConstraintLayout is
+ * bundled here. Taking the intermediate would drop it silently. See build.mjs.
  *
  * `minSdk` is the pack's floor rather than the container's 33: nothing here touches a greylisted
  * member, and inheriting 33 from a module it does not depend on was one of the costs of shipping
