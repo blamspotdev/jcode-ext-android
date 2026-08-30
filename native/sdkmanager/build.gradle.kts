@@ -18,6 +18,10 @@ android {
         applicationId = "dev.jcode.ext.android.sdkmanager"
     }
     sourceSets {
-        getByName("main") { java.srcDirs("java") }
+        getByName("main") {
+            java.srcDirs("java")
+            res.srcDirs("res")
+            assets.srcDirs("assets")
+        }
     }
 }

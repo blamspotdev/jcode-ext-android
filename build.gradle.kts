@@ -7,6 +7,11 @@ plugins {
 /**
  * The Android Dev Pack's native half: three archives, each loaded into JCode's own process on demand.
  *
+ * The Gradle root is here, at the repository root, so `native/` contains the three module directories
+ * and nothing else. `build-libs/` holds JCode's jars -- named apart from `lib/`, which holds the
+ * payloads that ship, because one letter between "the jars we compile against" and "the archives we
+ * publish" is a mistake waiting to happen.
+ *
  * `:designer` draws layouts, `:sdkmanager` manages the Android SDK, `:vdevice` is the container that
  * runs a built APK inside JCode. They were one module until JCode's `entry.native` became a list --
  * before that the manifest allowed one entry per extension, so one archive with one dispatching
@@ -67,9 +72,9 @@ subprojects {
             // and it is allowed to because it is a first-party pack released alongside JCode and
             // refused by `entry.native[].abi` when it is stale. A third-party extension gets
             // `ext-api` and nothing else.
-            add("compileOnly", rootProject.files("libs/jcode-ext-api-abi9.jar"))
-            add("compileOnly", rootProject.files("libs/jcode-core-design.jar"))
-            add("compileOnly", rootProject.files("libs/jcode-core-distro.jar"))
+            add("compileOnly", rootProject.files("build-libs/jcode-ext-api-abi9.jar"))
+            add("compileOnly", rootProject.files("build-libs/jcode-core-design.jar"))
+            add("compileOnly", rootProject.files("build-libs/jcode-core-distro.jar"))
 
             add("compileOnly", "androidx.compose.ui:ui:1.9.0")
             add("compileOnly", "androidx.compose.foundation:foundation:1.9.0")

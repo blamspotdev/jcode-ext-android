@@ -171,12 +171,15 @@ npm run build     # runs native/gradlew assembleRelease and puts the three paylo
 or by hand:
 
 ```sh
-cd native && ./gradlew assembleRelease
-cp vdevice/build/outputs/apk/release/*-release-unsigned.apk ../lib/vdevice.apk
-# designer and sdkmanager ship as bare dex — unzip `classes.dex` OUT OF each module's APK, not out
-# of intermediates/, which holds the project's dex without its bundled libraries. `npm run build`
-# does this; by hand it is one `unzip -p … classes.dex > ../lib/<id>.dex` apiece.
+./gradlew assembleRelease
+cp native/designer/build/outputs/apk/release/*-release-unsigned.apk lib/designer.apk
+cp native/sdkmanager/build/outputs/apk/release/*-release-unsigned.apk lib/sdkmanager.apk
+cp native/vdevice/build/outputs/apk/release/*-release-unsigned.apk lib/vdevice.apk
 ```
+
+`native/` holds the three module directories and nothing else — the Gradle root is the repository
+root, and the jars JCode is compiled against are in `build-libs/` (named apart from `lib/`, which is
+where the built archives go).
 
 Unsigned is correct: JCode loads these with a `DexClassLoader` and never installs them, so
 nothing checks its signature. What *is* checked is the signature on the `.jext` around it —
@@ -192,7 +195,7 @@ nobody on a phone can run.
 
 ### The compileOnly jars in `native/libs/`
 
-`jcode-ext-api-abi9.jar`, `jcode-core-design.jar` and `jcode-core-distro.jar` are JCode's own
+`build-libs/jcode-ext-api-abi9.jar`, `jcode-core-design.jar` and `jcode-core-distro.jar` are JCode's own
 classes, and the pack compiles against them without bundling them: it resolves them from JCode at
 runtime, because it runs *inside* JCode's process and a second copy of Compose or of the design
 system would be the wrong one. Refresh them from the app repo when JCode's own move:

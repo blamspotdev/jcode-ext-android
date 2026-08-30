@@ -1,0 +1,2 @@
+# This module owns its own assets/. Empty today; kept so the three modules have one shape
+# and a drawable or a bundled file has an obvious home that needs no build change.

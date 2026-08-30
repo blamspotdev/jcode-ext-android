@@ -130,18 +130,13 @@ entry:
   # the container, ConstraintLayout rode along for all three though only the designer inflates it,
   # and `minSdk 33` was imposed by the container on two modules that do not need it.
   native:
-    # A bare `.dex`: the designer resolves no resources -- it parses layout XML itself and builds
-    # views in code -- so an archive around it would carry 25 KB of empty resource table.
-    #
-    # It does bundle ConstraintLayout, whose classes AGP keeps in a dex of their own under
-    # `intermediates/`. That is why build.mjs takes the dex out of the built APK and not out of the
-    # intermediates: the APK's `classes.dex` is the merged one, and the intermediate is the project
-    # alone. Shipping the wrong one drops ConstraintLayout silently, until the canvas tries to
-    # inflate a real one.
+    # Its own library, its own dex, its own `res/` and `assets/` -- empty today, which is why the
+    # archive is mostly classes. An archive rather than a loose dex so that owning a drawable later
+    # is a file, not a packaging change.
     #
     # It declares no `views`; it is reached by its file claims.
     - id: designer
-      dex: lib/designer.dex
+      apk: lib/designer.apk
       class: dev.jcode.ext.android.designer.DesignerExtension
       abi: 9
       claims:
@@ -172,13 +167,13 @@ entry:
           contains: "return"
           label: Show Designer
           icon: image
-    # Also a bare `.dex`, and for the same reason: a table drawn entirely from JCode's own design
-    # system owns no drawable, no string and no id of its own.
+    # The same shape: a table drawn entirely from JCode's own design system owns no drawable, no
+    # string and no id of its own today, and can own all three without anyone touching this file.
     #
     # Its `views` id is the same string as its contributes.toolchainActions id -- the workbench opens
     # a contributed action by asking for the view named after it.
     - id: sdkmanager
-      dex: lib/sdkmanager.dex
+      apk: lib/sdkmanager.apk
       class: dev.jcode.ext.android.sdkmanager.SdkManagerExtension
       abi: 9
       views: [sdkmanager]
