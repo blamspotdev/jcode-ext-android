@@ -1,6 +1,7 @@
 package dev.jcode.ext.android.sdkmanager
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -298,7 +299,7 @@ private enum class Tab(val label: String, val columns: List<Col>, val defaultSor
      *  be *partially* installed. Newest first, which is what somebody looking for a platform wants. */
     Platforms(
         "SDK Platforms",
-        listOf(Col("API Level", 76.dp), Col("Revision", 56.dp), Col("Status", 104.dp)),
+        listOf(Col("API Level", 76.dp), Col("Revision", 64.dp), Col("Status", 104.dp)),
         Sort(1, ascending = false),
     ),
     Tools("SDK Tools", listOf(Col("Version", 84.dp), Col("Status", 104.dp)), Sort(0, ascending = true)),
@@ -670,7 +671,17 @@ private fun HeaderCell(
 ) {
     val active = sort.column == column
     Row(
-        modifier = modifier.clickable { onSort(column) }.padding(vertical = Space.hairline),
+        // No indication. The default paints a filled, rounded box the size of the label, which on
+        // this screen is the shape the tab chips directly above already use for "selected" — so the
+        // last header touched sat there looking like a chosen filter, and on a pointer it stays lit
+        // for as long as the cursor rests there. The sort is already reported where it belongs: the
+        // arrow moves to this column and its label goes semibold, immediately, on the same tap.
+        modifier = modifier
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+            ) { onSort(column) }
+            .padding(vertical = Space.hairline),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(
@@ -681,6 +692,12 @@ private fun HeaderCell(
             else MaterialTheme.colorScheme.onSurfaceVariant,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
+            // Weighted, so the ARROW is measured first and the label takes what is left. Unweighted
+            // it was measured first, took the column whole, and left the marker nowhere to go: on
+            // "Revision", the narrowest column, the label going semibold on selection was enough to
+            // push the arrow out of the line and drop the pair below its neighbours' baseline. The
+            // column that shows the sort is the one that must not break when it does.
+            modifier = Modifier.weight(1f, fill = false),
         )
         if (active) {
             Text(
