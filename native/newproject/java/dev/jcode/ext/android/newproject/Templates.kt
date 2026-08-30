@@ -52,6 +52,10 @@ internal enum class Category(val label: String) {
  * [script] is the scaffold, relative to the pack's `templates/` directory, and is what makes an
  * entry real: an entry with no script is one this pack cannot build yet, and the gallery says so
  * rather than offering it and failing at the end.
+ *
+ * [id] is also the variant: it names the directory under `templates/android-app/variants/` whose
+ * app module the scaffold's second step lays over the SDK's. One name for one thing, so an entry
+ * cannot advertise one variant and scaffold another.
  */
 internal data class Template(
     val id: String,
@@ -83,6 +87,7 @@ internal object Templates {
             name = "Empty Views Activity",
             description = "One activity with an XML layout, for a project that is not using Compose.",
             art = Art.ViewsActivity,
+            script = "android-app/scaffold-from-sdk-template.sh",
         ),
         Template(
             id = "navigation",
@@ -90,6 +95,7 @@ internal object Templates {
             name = "Navigation UI",
             description = "A drawer, a toolbar and three destinations wired to a navigation graph.",
             art = Art.Navigation,
+            script = "android-app/scaffold-from-sdk-template.sh",
         ),
         Template(
             id = "bottom-navigation",
@@ -97,6 +103,7 @@ internal object Templates {
             name = "Bottom Navigation",
             description = "Three top-level destinations behind a bottom navigation bar.",
             art = Art.BottomNavigation,
+            script = "android-app/scaffold-from-sdk-template.sh",
         ),
         Template(
             id = "no-activity",
@@ -104,6 +111,7 @@ internal object Templates {
             name = "No Activity",
             description = "A Gradle project with an application module and nothing in it.",
             art = Art.Empty,
+            script = "android-app/scaffold-from-sdk-template.sh",
         ),
         Template(
             id = "wear-empty",

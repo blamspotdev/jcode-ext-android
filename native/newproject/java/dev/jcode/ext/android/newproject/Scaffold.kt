@@ -86,6 +86,9 @@ internal object Scaffold {
             "JCODE_PROJECT_NAME" to config.folder,
             "JCODE_INPUT_APPLICATIONID" to config.applicationId,
             "JCODE_INPUT_MINSDK" to config.minSdk,
+            // Which of the gallery's entries this is. The SDK ships one template; the rest are this
+            // pack's, laid over it by the step below.
+            "JCODE_INPUT_VARIANT" to template.id,
         )
 
         onStep("Creating the project folder")
@@ -95,6 +98,7 @@ internal object Scaffold {
         // a script that writes relative paths writes them where it means to.
         val steps = listOf(
             Step("Scaffolding from the Android SDK's template", "$pack/templates/${script}", required = true),
+            Step("Making it a ${template.name}", "$pack/templates/android-app/apply-variant.sh", required = true),
             Step("Configuring Build & Run", "$pack/templates/android-app/configure-build-run.sh"),
         )
         for ((label, path, required) in steps) {
