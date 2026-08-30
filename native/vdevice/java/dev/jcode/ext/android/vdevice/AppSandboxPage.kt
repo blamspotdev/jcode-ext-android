@@ -693,10 +693,26 @@ private fun HomeChrome(
         // at the trailing end of its status bar, and this sat straight on top of them — the dots ran
         // through the signal bars. The leading end is empty and stays empty: the device deliberately
         // shows no clock there, because the phone's own clock is one bar above it.
-        Box(modifier = Modifier.align(Alignment.TopStart).padding(Space.xs)) {
-            // Named, not a trailing lambda: ToolbarAction's last parameter is `tint`, so a trailing
-            // block binds to the colour rather than to the click.
-            ToolbarAction(Icons.Rounded.MoreVert, "Device menu", onClick = { open = true })
+        //
+        // Sized to that bar rather than to a toolbar. [VirtualStatusBar.BAR_DP] is 22dp and the
+        // standard action is 34 plus padding, so the affordance did not fit the strip it sits on:
+        // two dots landed in the status bar and the third in the app underneath, in both
+        // orientations. It is the device's own chrome, so it takes the device's own scale — which
+        // costs a touch target smaller than 48dp, and that is the trade for not standing on the app.
+        Box(
+            modifier = Modifier
+                .align(Alignment.TopStart)
+                .height(VirtualStatusBar.BAR_DP.dp)
+                .width(MENU_WIDTH)
+                .clickable { open = true },
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                Icons.Rounded.MoreVert,
+                contentDescription = "Device menu",
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(MENU_ICON),
+            )
             DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
                 DropdownMenuItem(
                     text = { Text("Install an app") },
@@ -1193,6 +1209,10 @@ private fun ScreenOptionsAction(onOpenChange: (Boolean) -> Unit) {
         }
     }
 }
+
+/** The device-menu affordance, sized to [VirtualStatusBar.BAR_DP] rather than to a toolbar. */
+private val MENU_WIDTH = 30.dp
+private val MENU_ICON = 15.dp
 
 @Composable
 private fun ToolbarAction(
