@@ -100,17 +100,19 @@ internal fun SdkManagerPage(
 
     Column(modifier = modifier.fillMaxSize().padding(Space.md), verticalArrangement = Arrangement.spacedBy(Space.sm)) {
         Header(
-            busy = loading || progress != null,
-            onRefresh = { if (progress == null) scope.launch { reload() } },
+            // Only while there is already a table to refresh. The first read has nothing to keep on
+            // screen, so it says so in the body and the corner stays a button; showing both was two
+            // spinners for one wait.
+            refreshing = loading && snapshot != null,
+            // Nothing to refresh part-way through an apply, and the body is a progress screen for
+            // the duration — a control that cannot be used is better absent than inert.
+            canRefresh = progress == null,
+            onRefresh = { scope.launch { reload() } },
         )
 
         val snap = snapshot
         when {
             progress != null -> ApplyProgress(progress!!, Modifier.weight(1f))
-
-            loading -> Box(Modifier.fillMaxWidth().padding(Space.lg), Alignment.Center) {
-                CircularProgressIndicator(modifier = Modifier.width(28.dp))
-            }
 
             failure is SdkManagerCatalog.NoSdkInstalled -> ManagerNoticeCard(
                 title = "The Android SDK is not installed",
@@ -123,6 +125,8 @@ internal fun SdkManagerPage(
                 message = failure!!.message ?: "sdkmanager did not answer.",
             )
 
+            // Before `loading`, so a refresh leaves the table where it was instead of blanking it
+            // and jumping back to the top. Only the very first read falls past this.
             snap != null -> {
                 Row(horizontalArrangement = Arrangement.spacedBy(Space.s)) {
                     Tab.entries.forEach { t ->
@@ -186,6 +190,11 @@ internal fun SdkManagerPage(
                         }
                     },
                 )
+            }
+
+            // The first read only: every later one keeps the table above and spins in the corner.
+            loading -> Box(Modifier.fillMaxWidth().padding(Space.lg), Alignment.Center) {
+                CircularProgressIndicator(modifier = Modifier.size(28.dp))
             }
         }
     }
@@ -511,7 +520,7 @@ private fun toggled(pending: Map<String, Boolean>, row: PackageRow): Map<String,
 }
 
 @Composable
-private fun Header(busy: Boolean, onRefresh: () -> Unit) {
+private fun Header(refreshing: Boolean, canRefresh: Boolean, onRefresh: () -> Unit) {
     Row(
         modifier = Modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically,
@@ -527,7 +536,11 @@ private fun Header(busy: Boolean, onRefresh: () -> Unit) {
         }
         // An icon, not a labelled button: it sits beside a title that already says what the page
         // is, and the word "Refresh" was the widest thing in the header on a phone.
-        if (busy) CircularProgressIndicator(modifier = Modifier.width(18.dp))
+        if (!canRefresh) Unit
+        // `size`, not `width`: constraining one axis leaves the other at the indicator's default,
+        // which drew a tall squashed arc and rode up above the title because the row centres on the
+        // height it was given.
+        else if (refreshing) CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
         else IconButton(onClick = onRefresh) {
             Icon(
                 imageVector = Icons.Rounded.Refresh,
