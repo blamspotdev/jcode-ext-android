@@ -242,7 +242,15 @@ internal object GuestRuntime {
      * a relaunch. It reaches `onCreate` as the argument every activity is written to expect and has
      * never once been given here, because nothing was ever relaunched.
      */
-    fun embed(stub: Intent, windowToken: IBinder?, savedState: Bundle? = null): Activity {
+    fun embed(request: Intent, windowToken: IBinder?, savedState: Bundle? = null): Activity {
+        // A copy, because [onLaunchActivity] below rewrites the component to the guest's — and the
+        // caller keeps this intent to rebuild the activity with. EmbeddedGuest.start says so in as
+        // many words ("the stub is built here rather than inside `embed` so the entry can keep it"),
+        // and it was keeping a stub that had already been turned into a guest component: the rebuild
+        // a configuration change needs then asked the HOST's PackageManager for a guest activity and
+        // got NameNotFoundException, so the first resize after an app opened destroyed it. Every
+        // app opened from the home screen hit this, because push() resizes on the way in.
+        val stub = Intent(request)
         // Read *before* anything below can move it. `resolve` sets `active` to the activity being
         // built, so asking afterwards answers with the app that is starting rather than the app that
         // started it — which is null-filtered out and leaves getCallingPackage() with nothing.
