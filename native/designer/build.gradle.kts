@@ -53,7 +53,7 @@ dependencies {
     // refuses to run without the runtime in front of it -- so the same set is repeated here. These
     // are test-only and never enter the archive, so the ABI rule is not weakened by them.
     testImplementation(kotlin("test"))
-    testImplementation(rootProject.files("libs/jcode-ext-api-abi9.jar"))
+    testImplementation(rootProject.files("build-libs/jcode-ext-api-abi3.jar"))
     testImplementation("androidx.compose.runtime:runtime:1.9.0")
     testImplementation("androidx.compose.ui:ui:1.9.0")
     testImplementation("androidx.compose.foundation:foundation:1.9.0")

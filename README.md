@@ -195,7 +195,7 @@ nobody on a phone can run.
 
 ### The compileOnly jars in `native/libs/`
 
-`build-libs/jcode-ext-api-abi9.jar`, `jcode-core-design.jar` and `jcode-core-distro.jar` are JCode's own
+`build-libs/jcode-ext-api-abi3.jar`, `jcode-core-design.jar` and `jcode-core-distro.jar` are JCode's own
 classes, and the pack compiles against them without bundling them: it resolves them from JCode at
 runtime, because it runs *inside* JCode's process and a second copy of Compose or of the design
 system would be the wrong one. Refresh them from the app repo when JCode's own move:

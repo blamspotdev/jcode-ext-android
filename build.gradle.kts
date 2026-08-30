@@ -72,7 +72,7 @@ subprojects {
             // and it is allowed to because it is a first-party pack released alongside JCode and
             // refused by `entry.native[].abi` when it is stale. A third-party extension gets
             // `ext-api` and nothing else.
-            add("compileOnly", rootProject.files("build-libs/jcode-ext-api-abi9.jar"))
+            add("compileOnly", rootProject.files("build-libs/jcode-ext-api-abi3.jar"))
             add("compileOnly", rootProject.files("build-libs/jcode-core-design.jar"))
             add("compileOnly", rootProject.files("build-libs/jcode-core-distro.jar"))
 

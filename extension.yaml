@@ -138,7 +138,7 @@ entry:
     - id: designer
       apk: lib/designer.apk
       class: dev.jcode.ext.android.designer.DesignerExtension
-      abi: 9
+      abi: 3
       claims:
         # A layout is decided by where it lives: AndroidManifest.xml is also XML and is not a layout.
         #
@@ -175,7 +175,7 @@ entry:
     - id: sdkmanager
       apk: lib/sdkmanager.apk
       class: dev.jcode.ext.android.sdkmanager.SdkManagerExtension
-      abi: 9
+      abi: 3
       views: [sdkmanager]
     # An APK, and the only one that has to be. The status bar, quick-settings icons and permission
     # prompt are real drawables, the ids its views carry are what `uiautomator dump` reports and an
@@ -190,5 +190,5 @@ entry:
       apk: lib/vdevice.apk
       class: dev.jcode.ext.android.vdevice.VirtualDeviceExtension
       guest: dev.jcode.ext.android.vdevice.VirtualDeviceGuest
-      abi: 9
+      abi: 3
       views: [device, hardware]
