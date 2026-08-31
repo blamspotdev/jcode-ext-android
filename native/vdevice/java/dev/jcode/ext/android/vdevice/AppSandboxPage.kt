@@ -626,7 +626,10 @@ private fun DeviceScreen(
         // Outside the `when`, and no longer conditional on nothing running. The device's resting
         // state used to be a blank screen with no guest; it is the launcher app now, so a menu shown
         // only while nothing ran would never be shown at all — and Install an app is only here.
-        HomeChrome(
+        // Only while the device is showing its own home screen. It is the IDE's chrome, not the
+        // device's, and an app on the screen has its own bottom edge to use -- the Files app puts
+        // a Close button exactly where this sits, and the two shared the same strip.
+        if (AppSandbox.atHome) HomeChrome(
             onInstall = onInstall,
             onHardware = { SimulatedHardware.requestOpen() },
             modifier = Modifier.fillMaxSize(),

@@ -213,6 +213,15 @@ internal object AppSandbox {
      */
     private val foreground = mutableStateOf<String?>(null)
 
+    /**
+     * True while the device is showing its own home screen rather than an app.
+     *
+     * [foreground] is null for the launcher by construction -- see [onForegroundApp] -- which is
+     * the same fact the tab title is built from, so the chrome and the title cannot disagree.
+     */
+    val atHome: Boolean get() = foreground.value == null
+
+
     /** The container reported what is in front. Nothing to do but rename the tab it is in. */
     internal fun onForegroundApp(packageName: String, label: String) {
         val apply = Runnable {
