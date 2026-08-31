@@ -30,6 +30,7 @@ import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Keyboard
+import androidx.compose.material.icons.rounded.MoreHoriz
 import androidx.compose.material.icons.rounded.PhoneAndroid
 import androidx.compose.material.icons.rounded.RestartAlt
 import androidx.compose.material.icons.rounded.ScreenRotation
@@ -660,20 +661,20 @@ private fun HomeChrome(
     onHardware: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    var open by remember { mutableStateOf(false) }
     Box(modifier = modifier) {
-        // Buttons at the bottom, not a menu in the corner.
+        // Bottom centre, and one button rather than two.
         //
-        // As a corner affordance these were one tap away from being seen at all, and they shared the
-        // status bar strip with the device's own wifi and signal icons -- which is why the strip had
-        // to be given up whenever the control bar came over the top of it. The bottom centre is the
-        // one place on a phone-shaped screen that no bar of ours and none of the device's own reach:
-        // the control bar is at the top, the device's navigation bar is below this, and the
-        // workbench's chrome pill is at the trailing corner.
+        // The corner it used to live in was shared with the device's own wifi and signal icons and
+        // with the control bar, which is `fillMaxWidth` and lay right across it -- so this had to
+        // hide itself whenever the bar was open. The bottom centre is the one part of a phone-shaped
+        // screen nothing else reaches: our bar is at the top, the device's navigation bar is below,
+        // and the workbench's chrome pill is at the trailing corner. Both can be open at once here.
         //
-        // Shaped like the control bar because it *is* the same thing -- the IDE reaching onto the
-        // device -- and two pieces of one toolset should not look like two toolsets. Floating rather
-        // than full width so it costs the device's screen only what it occupies, which a bar spanning
-        // the width would not.
+        // A menu and not two labelled buttons, because the device is not always tab-width. As a pane
+        // in landscape it is a narrow column with the control bar in the gutter beside it, and two
+        // labels came out wider than the device they belong to -- "Hardware" ran under the bar. One
+        // button is as wide as the narrowest the device gets.
         Surface(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
@@ -687,42 +688,53 @@ private fun HomeChrome(
             // blue-tinted while every panel around it stayed neutral grey.
             color = MaterialTheme.colorScheme.surface,
         ) {
-            Row(
-                modifier = Modifier.padding(horizontal = Space.xxs, vertical = Space.xxs),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(Space.xxs),
+            Box(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(percent = 50))
+                    .clickable(onClickLabel = "Device menu") { open = true }
+                    .padding(horizontal = Space.sm, vertical = Space.xs),
+                contentAlignment = Alignment.Center,
             ) {
-                ChromeAction(Icons.Rounded.Add, "Install an app", onInstall)
-                // Reachable with nothing running, because a route or an attitude is usually set up
-                // *before* the app that is meant to react to it is opened.
-                ChromeAction(Icons.Rounded.Tune, "Hardware", onHardware)
+                Icon(
+                    Icons.Rounded.MoreHoriz,
+                    contentDescription = "Device menu",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(IconSize.lg),
+                )
+                DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+                    DropdownMenuItem(
+                        text = { Text("Install an app") },
+                        leadingIcon = {
+                            Icon(
+                                Icons.Rounded.Add,
+                                contentDescription = null,
+                                modifier = Modifier.size(IconSize.md),
+                            )
+                        },
+                        onClick = {
+                            open = false
+                            onInstall()
+                        },
+                    )
+                    // Reachable with nothing running, because a route or an attitude is usually set
+                    // up *before* the app that is meant to react to it is opened.
+                    DropdownMenuItem(
+                        text = { Text("Hardware") },
+                        leadingIcon = {
+                            Icon(
+                                Icons.Rounded.Tune,
+                                contentDescription = null,
+                                modifier = Modifier.size(IconSize.md),
+                            )
+                        },
+                        onClick = {
+                            open = false
+                            onHardware()
+                        },
+                    )
+                }
             }
         }
-    }
-}
-
-/** One of [HomeChrome]'s buttons: labelled, because unlike the control bar's there are only two. */
-@Composable
-private fun ChromeAction(icon: ImageVector, label: String, onClick: () -> Unit) {
-    Row(
-        modifier = Modifier
-            .clip(RoundedCornerShape(percent = 50))
-            .clickable(onClickLabel = label, onClick = onClick)
-            .padding(horizontal = Space.sm, vertical = Space.xs),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(Space.xs),
-    ) {
-        Icon(
-            icon,
-            contentDescription = null,
-            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.size(IconSize.md),
-        )
-        Text(
-            label,
-            style = MaterialTheme.typography.labelLarge,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
     }
 }
 
