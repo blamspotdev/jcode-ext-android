@@ -60,6 +60,7 @@ import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -527,7 +528,15 @@ private fun DeviceScreen(
     // colour made the tab look like a device with its screen off. The wallpaper is kept directly
     // behind the surface instead, where the flash it was guarding against actually happens.
     Box(
-        modifier = modifier.background(MaterialTheme.colorScheme.background),
+        // Clipped to the pane, and that is not about painting -- nothing is drawn outside it
+        // anyway. The device's view is laid out at the device's OWN size with `requiredSize`,
+        // which ignores this parent's constraints on purpose, and then shrunk with a View scale.
+        // Compose hit-tests the LAYOUT rectangle and knows nothing of a View-level scale, so a
+        // 1080x1920 device in a smaller panel had a touch target of 1080x1920 centred on the
+        // panel -- reaching out over whatever surrounded it. In the right drawer that is the tab
+        // strip: Terminal, Output, Issues, Debug, Tasks and Close all stopped responding, because
+        // every tap on them was landing on a device that is not drawn there.
+        modifier = modifier.background(MaterialTheme.colorScheme.background).clipToBounds(),
         contentAlignment = Alignment.Center,
     ) {
         val density = LocalDensity.current
