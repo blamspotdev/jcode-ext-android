@@ -94,49 +94,32 @@ settings:
     type: bool
     default: "false"
     description: >-
-      An Android run config built for the virtual device starts its APK inside JCode — no install
-      and no ADB setup — under a virtual device identity, with its storage kept under JCode. The
-      app still inherits JCode's permissions, and the providers, services and receivers it
-      declares run inside the device only, so nothing outside can reach them. Use this for quick
-      iteration and install the app for real before trusting what you see.
-
-      This is also what runs the device's adb daemon, so `adb install`, `logcat`, `screencap`,
-      `input` and the rest answer from JCode's own terminals while it is on.
+      Starts a built APK inside JCode rather than installing it, under a device identity with its own
+      storage. Also runs the device's adb. Install the app for real before trusting what you see.
   - key: reconnectAdb
     label: Reconnect adb
     type: action
     command: vdevice.reconnectAdb
     button: Reconnect
     description: >-
-      Attach the virtual device to the runtime's adb server again, for when `adb devices` no
-      longer lists it — after `adb kill-server`, or a runtime restart. The device is reachable
-      only from JCode's own terminals: it listens on a socket inside JCode's storage rather than
-      a port, so nothing else on the phone can see it and there is nothing to connect to from a
-      computer.
+      Attach the device to the runtime's adb server again, for when `adb devices` stops listing it —
+      after `adb kill-server`, or a runtime restart.
   - key: defaultDeviceScreen
     label: Default vDevice screen size
     type: enum
     default: fit
     options: [fit, phone, phone-small, foldable, tablet]
     description: >-
-      Which screen the virtual device pretends to be when it opens. `fit` is the tab's own shape,
-      which is what the device did before there was anything to choose; the rest are real screens —
-      picking one rewrites the guest's DisplayMetrics and Configuration, so its resource qualifiers
-      reselect and an app laid out for a small phone genuinely reflows. The device's own control bar
-      switches between them for the session; this is where the session starts.
-
+      Which screen the device pretends to be when it opens. `fit` is the tab's own shape; the rest are
+      real screens, and picking one makes the guest's layout reflow for it.
   - key: deviceSurface
     label: Where the virtual device opens
     type: enum
     default: tab
     options: [tab, drawer]
     description: >-
-      An editor tab, or the right drawer beside the editor. The drawer keeps the device on screen
-      while you work in a file, which is what watching an app react to a change actually looks like;
-      a tab gives it the whole width, which is what a tablet profile wants. Only ever one of the two
-      — the device is a real embedded surface with one guest behind it, so JCode moves it rather than
-      drawing it twice.
-
+      An editor tab, or the right drawer beside the editor. The drawer keeps the device in view while
+      you edit; only one of the two shows it at a time.
   - key: openLayoutsInDesigner
     label: Open layouts in the designer
     type: boolean
