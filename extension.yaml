@@ -89,6 +89,30 @@ images:
   samples: []
   walkthrough: []
 settings:
+  - key: runInVirtualDevice
+    label: Run in a virtual device
+    type: bool
+    default: "false"
+    description: >-
+      An Android run config built for the virtual device starts its APK inside JCode — no install
+      and no ADB setup — under a virtual device identity, with its storage kept under JCode. The
+      app still inherits JCode's permissions, and the providers, services and receivers it
+      declares run inside the device only, so nothing outside can reach them. Use this for quick
+      iteration and install the app for real before trusting what you see.
+
+      This is also what runs the device's adb daemon, so `adb install`, `logcat`, `screencap`,
+      `input` and the rest answer from JCode's own terminals while it is on.
+  - key: reconnectAdb
+    label: Reconnect adb
+    type: action
+    command: vdevice.reconnectAdb
+    button: Reconnect
+    description: >-
+      Attach the virtual device to the runtime's adb server again, for when `adb devices` no
+      longer lists it — after `adb kill-server`, or a runtime restart. The device is reachable
+      only from JCode's own terminals: it listens on a socket inside JCode's storage rather than
+      a port, so nothing else on the phone can see it and there is nothing to connect to from a
+      computer.
   - key: defaultDeviceScreen
     label: Default vDevice screen size
     type: enum
