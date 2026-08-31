@@ -540,7 +540,11 @@ class VirtualDeviceAdbService(context: Context) : AdbServiceHandler {
                 stream.write("Success\n")
             }
 
-            else -> stream.write(unsupportedService(stream.service))
+            // `cmd package <verb>` is `pm <verb>` -- one binary behind two spellings, and the
+            // client picks which. `adb uninstall` sends this one, so answering only the install
+            // verbs here left `pm uninstall` working from a shell while `adb uninstall` failed on
+            // the same device, which reads as a device that refuses to remove an app.
+            else -> stream.write(pm(args.drop(2)) ?: unsupportedService(stream.service))
         }
     }
 
