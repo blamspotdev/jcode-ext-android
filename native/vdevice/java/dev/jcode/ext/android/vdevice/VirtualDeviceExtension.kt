@@ -1,8 +1,9 @@
 package dev.jcode.ext.android.vdevice
 
 import android.content.ContentProvider
+import java.io.File
 import androidx.compose.runtime.Composable
-import dev.blamspot.jcode.core.distro.adb.AdbServiceHandler
+import dev.blamspot.jcode.core.distro.adb.AdbAuthorizedKeys
 import dev.blamspot.jcode.ext.api.JCodeNativeExtension
 import dev.blamspot.jcode.ext.api.JCodeVirtualDevice
 import dev.blamspot.jcode.ext.api.NativeHost
@@ -35,6 +36,9 @@ class VirtualDeviceExtension : JCodeNativeExtension, JCodeVirtualDevice {
     }
 
     override fun attach(host: VirtualDeviceHost, context: android.content.Context) {
+        // Kept for the daemon: the keys it authenticates against are the distro's, and they live
+        // under JCode's own files directory -- which this module can only be told, never assume.
+        hostFiles = context.filesDir
         AppSandbox.attach(host, context)
     }
 
@@ -59,9 +63,43 @@ class VirtualDeviceExtension : JCodeNativeExtension, JCodeVirtualDevice {
         else -> null
     }
 
-    override val adbBanner: String get() = VirtualDeviceAdbService.BANNER
+    /**
+     * The device's own adb daemon.
+     *
+     * Held here rather than by the host, because it *is* the device: the banner it answers with is
+     * this device's identity, everything it serves is this device's, and a JCode with no pack
+     * installed has no device to answer for. The host decides whether and where -- it owns the
+     * setting and the runtime whose rootfs the socket must sit inside -- and attaches the
+     * runtime's adb client afterwards, since that client is the runtime's.
+     *
+     * The banner and the handler are asked for per connection: a daemon built before the device
+     * has run would otherwise capture the answer of a device that did not exist yet.
+     */
+    private var hostFiles: File? = null
+    private var adb: VirtualDeviceAdbDaemon? = null
 
-    override val adbHandler: AdbServiceHandler get() = AppSandbox.adbHandler()
+    override suspend fun startAdb(rootfs: File): String? {
+        val files = hostFiles ?: return null
+        // Built on the first start rather than eagerly, and asked for its banner and handler per
+        // connection: a daemon that captured either before the device had run would answer for a
+        // device that did not exist yet.
+        val daemon = adb ?: VirtualDeviceAdbDaemon(
+            banner = { VirtualDeviceAdbService.BANNER },
+            authorizedKeys = AdbAuthorizedKeys(File(files, "distros")),
+            handler = { stream -> AppSandbox.adbHandler().handle(stream) },
+            log = { message -> android.util.Log.i("VDEVICE", message) },
+        ).also { adb = it }
+        runCatching { daemon.start(File(rootfs, "run/" + VirtualDeviceAdbDaemon.SOCKET_NAME)) }
+            .onFailure {
+                android.util.Log.w("VDEVICE", "virtual device adb failed to start", it)
+                return null
+            }
+        return VirtualDeviceAdbDaemon.connectSpec("/run/" + VirtualDeviceAdbDaemon.SOCKET_NAME)
+    }
+
+    override fun stopAdb() {
+        runCatching { adb?.stop() }
+    }
 
     companion object {
         /** The device tab. JCode's `VIRTUAL_DEVICE_VIEW` is the other end of this string. */
