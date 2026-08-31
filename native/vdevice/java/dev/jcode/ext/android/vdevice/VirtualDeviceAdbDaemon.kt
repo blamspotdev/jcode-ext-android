@@ -52,8 +52,10 @@ import kotlinx.coroutines.withContext
  * than the only one — see [AdbAuth] for what it means here.
  *
  * The client end is `adb connect localfilesystem:<path>`, which adb supports on Linux (and refuses on
- * Windows, where AF_UNIX sockets are not available to it). The transport's serial is then that spec
- * rather than an address, so the device shows up as itself and there is no port to scan for.
+ * Windows, where AF_UNIX sockets are not available to it). adb takes a transport's serial to be
+ * whatever it was connected with, so that spec is the name this device answers to and the name every
+ * tool downstream of it prints -- which is why the socket is named after the device's serial rather
+ * than after itself. See [VirtualDeviceSerial].
  *
  * [banner] is adb's connection banner *without* its terminating NUL, e.g.
  * `device::ro.product.name=…;features=cmd,…`. The `cmd` feature is load-bearing: with it `adb install`
@@ -338,10 +340,15 @@ class VirtualDeviceAdbDaemon(
     }
 
     companion object {
-        /** The socket file's name, under whichever directory the caller binds it in. */
-        const val SOCKET_NAME: String = "jcode-vdevice-adb.sock"
+        /**
+         * What this socket was called before it was called after the device's serial.
+         *
+         * Kept only to be deleted: a device that ran under an older pack left the file behind, and a
+         * stray socket under a name that says what it is undoes the point of the rename.
+         */
+        const val LEGACY_SOCKET_NAME: String = "jcode-vdevice-adb.sock"
 
-        /** What an adb client has to be given to reach [SOCKET_NAME] — `adb connect <this>`. */
+        /** What an adb client has to be given to reach the socket — `adb connect <this>`. */
         fun connectSpec(guestPath: String): String = "localfilesystem:$guestPath"
 
         private const val MAX_AUTH_ATTEMPTS = 8

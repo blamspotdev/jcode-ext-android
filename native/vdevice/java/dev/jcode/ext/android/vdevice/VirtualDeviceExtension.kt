@@ -89,12 +89,16 @@ class VirtualDeviceExtension : JCodeNativeExtension, JCodeVirtualDevice {
             handler = { stream -> AppSandbox.adbHandler().handle(stream) },
             log = { message -> android.util.Log.i("VDEVICE", message) },
         ).also { adb = it }
-        runCatching { daemon.start(File(rootfs, "run/" + VirtualDeviceAdbDaemon.SOCKET_NAME)) }
+        // Named after the serial, because adb prints the path it was connected with wherever it
+        // would print a serial -- so the path is the device's name whether or not it reads like one.
+        val serial = VirtualDeviceSerial.of(files)
+        runCatching { File(rootfs, "run/" + VirtualDeviceAdbDaemon.LEGACY_SOCKET_NAME).delete() }
+        runCatching { daemon.start(File(rootfs, "run/$serial")) }
             .onFailure {
                 android.util.Log.w("VDEVICE", "virtual device adb failed to start", it)
                 return null
             }
-        return VirtualDeviceAdbDaemon.connectSpec("/run/" + VirtualDeviceAdbDaemon.SOCKET_NAME)
+        return VirtualDeviceAdbDaemon.connectSpec("/run/$serial")
     }
 
     override fun stopAdb() {

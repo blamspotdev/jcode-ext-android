@@ -51,7 +51,7 @@ class VirtualDeviceAdbService(context: Context) : AdbServiceHandler {
             "ro.product.model" to VirtualIdentity.MODEL,
             "ro.product.brand" to BRAND,
             "ro.product.manufacturer" to BRAND,
-            "ro.serialno" to VirtualIdentity.SERIAL,
+            "ro.serialno" to VirtualDeviceSerial.of(appContext.filesDir),
             "ro.build.version.sdk" to Build.VERSION.SDK_INT.toString(),
             "ro.build.version.release" to Build.VERSION.RELEASE,
             "ro.build.version.codename" to Build.VERSION.CODENAME,

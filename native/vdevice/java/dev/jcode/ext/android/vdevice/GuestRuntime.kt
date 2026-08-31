@@ -98,7 +98,7 @@ internal object GuestRuntime {
         // which is the exact leak this container exists to prevent. Measured, and the reason this
         // line comes before anything that can touch storage.
         WorkspaceHostPaths.init(host.filesDir)
-        VirtualIdentity.apply(Application.getProcessName())
+        VirtualIdentity.apply(Application.getProcessName(), host.filesDir)
         claimWebViewDirectory()
 
         val activityThread = GuestHooks.currentActivityThread()
