@@ -63,7 +63,16 @@ internal object VirtualLauncher {
     private const val STATUS_BAR_CLASS = "dev.blamspot.jcode.vdevice.StatusBar"
 
     /** Reads what is installed, with each app's own icon. Parses APKs — never call it on the UI thread. */
+    /**
+     * The apps this fallback draws — everything installed except the home screen itself.
+     *
+     * The real launcher is left out the way it leaves itself out: it declares no `LAUNCHER` category,
+     * so the query a home screen makes never returns it. This one lists what is *installed*, which is
+     * a different question and answered "Home" among the icons — an app that takes you to the screen
+     * you are already looking at.
+     */
     fun load(context: Context): List<LauncherApp> = VirtualDeviceApps.list(context)
+        .filterNot { it.packageName == DeviceIntents.LAUNCHER_PACKAGE }
         .map { LauncherApp(it, VirtualDevice.icon(context, it.apkPath)) }
 
     /**

@@ -99,6 +99,13 @@ internal object GuestPackageHook {
 
         override fun invoke(proxy: Any?, method: Method, args: Array<Any?>?): Any? {
             answer(method, args)?.let { return it.value }
+            // A query that names a guest and was not answered here is one the container has not
+            // modelled: it is about to go to a package manager that has never heard of that package,
+            // and come back NameNotFound or "Unknown package". That is the shape of every bug this
+            // hook has ever had, and it is invisible without saying so.
+            if (namesGuest(args)) {
+                Log.i(TAG, "package query not modelled: ${method.name}(${args?.joinToString { describe(it) }})")
+            }
             return try {
                 method.invoke(real, *(args ?: emptyArray()))
             } catch (e: InvocationTargetException) {
@@ -123,6 +130,14 @@ internal object GuestPackageHook {
                 is String -> GuestLoader.forPackage(arg) != null
                 else -> false
             }
+        }
+
+        /** Short enough to read in a log line: the package or component, not a whole ApplicationInfo. */
+        private fun describe(arg: Any?): String = when (arg) {
+            is ComponentName -> arg.flattenToShortString()
+            is String -> arg
+            null -> "null"
+            else -> arg.javaClass.simpleName
         }
 
         private fun Throwable.isUnknownPackage(): Boolean =

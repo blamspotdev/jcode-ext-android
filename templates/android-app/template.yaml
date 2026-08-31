@@ -1,41 +1,35 @@
 id: android-app
 name: Android App
-description: A minimal Kotlin Android app — Gradle build, an :app module, and a ConstraintLayout screen. Needs the Android SDK prerequisites to build.
+description: An Empty Activity Compose app, scaffolded from the Android SDK's own project template — Compose, Navigation, a ViewModel and a test. Needs the Android SDK and its "Android Project Templates" package.
+# The variants are a gallery, not a dropdown: which kind of app this is going to be is a decision
+# made by looking, and JCode's own configure step has no way to show one. It gets the name and hands
+# over to this pack's view, which draws the gallery and scaffolds from it.
+gallery: newAndroidProject
 requires:
   - android-prereqs
   - android-sdk
+  # The scaffold reads Google's template-definition.json and unpacks one variant out of the SDK's
+  # template zip, which needs a JSON parser and a zip reader. The runtime has neither `jq` nor
+  # `unzip` guaranteed, and python3 covers both from its standard library. Undeclared, this worked
+  # on any device that happened to have the Python pack and produced an EMPTY PROJECT on one that
+  # did not -- measured on a fresh install: "python3: not found", no files, no error on screen.
+  - python
 inputs:
+  - id: applicationId
+    label: Application ID (package name)
+    type: text
+    default: com.example.app
   - id: minSdk
     label: Minimum SDK
     type: select
     options: ["21", "23", "24", "26", "28", "29", "30", "31", "33", "34"]
     default: "24"
-  # Capped at 34: the distro's ARM-native aapt2 (Debian android-sdk-build-tools) cannot parse the
-  # compact resource-table format that android.jar uses from API 35 on, so on-device resource
-  # linking fails above 34.
-  - id: targetSdk
-    label: Target / Compile SDK
-    type: select
-    options: ["30", "31", "33", "34"]
-    default: "34"
+# Compile SDK is deliberately not a choice any more. It is whatever this device's aapt2 can actually
+# read, which the Android SDK install works out and records in jcode-compile-sdk.txt — a higher one
+# scaffolds perfectly and then fails every build inside resource linking, which is a bad way to find
+# out. The old dropdown offered 30/31/33/34 and did not list the platform that was installed.
 recipe:
-  - label: Create project layout
-    script: create-project-layout.sh
-  - label: Write settings.gradle.kts
-    script: write-settings-gradle-kts.sh
-  - label: Write root build.gradle.kts
-    script: write-root-build-gradle-kts.sh
-  - label: Write gradle.properties
-    script: write-gradle-properties.sh
-  - label: Write app/build.gradle.kts
-    script: write-app-build-gradle-kts.sh
-  - label: Write AndroidManifest.xml
-    script: write-androidmanifest-xml.sh
-  - label: Write MainActivity.kt
-    script: write-mainactivity-kt.sh
-  - label: Write res/layout/activity_main.xml
-    script: write-res-layout-activity-main-xml.sh
-  - label: Write res/values/strings.xml
-    script: write-res-values-strings-xml.sh
+  - label: Scaffold from the Android SDK's template
+    script: scaffold-from-sdk-template.sh
   - label: Configure Build & Run
     script: configure-build-run.sh

@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Never installed as an app: JCode loads this archive's classes and resources into its own
+     process. There is no launcher activity and no permission here on purpose — the plugin runs with
+     JCode's identity, and declaring anything would only be misleading.
+
+     The virtual device's four components are NOT here either, and cannot be: an extension does not
+     contribute to the host's manifest, so the `:guest` process, the guest-activity template and the
+     two provider authorities stay declared in JCode and are answered by stubs that load this pack.
+     See JCodeVirtualDevice for why each one has to be where it is. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application android:hasCode="true" />
+</manifest>

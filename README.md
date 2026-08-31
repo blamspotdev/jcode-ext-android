@@ -19,10 +19,28 @@ configured in the runtime — the JDK, Android SDK, and Gradle used by `./gradle
 - **Gradle** — Android/Gradle DSL coloring/completions (`plugins`, `android`,
   `dependencies`, `defaultConfig`, `buildTypes`, …) with `android { }` and
   `dependencies { }` helpers.
-- **`android-app` template** — scaffolds a minimal but real Kotlin Android app:
-  root + `:app` Gradle module, `AndroidManifest.xml`, `MainActivity`, a
-  `ConstraintLayout` screen, `strings.xml`, and a **Build APK** task
-  (`./gradlew :app:assembleDebug`).
+- **`android-app` template** — scaffolds Google's own **Empty Activity (Compose)**
+  project: Compose, Navigation, a ViewModel, a repository and an instrumented
+  test, plus a **Build APK** task (`:app:assembleDebug`).
+
+  It is not written here. The Android SDK's `build;templates` package ships
+  Android Studio's project templates, and each is a real project tree plus a
+  `.template/template-definition.json` saying how to turn it into somebody's
+  project — arguments, the SDK packages it needs, and an ordered list of
+  `string-replace` / `rename-file` transformations. `apply-sdk-template.py`
+  implements that format, so the template stays Google's and tracks AGP and
+  Compose versions without anyone here maintaining it. Install **Android Project
+  Templates** in the Android SDK Manager first; the scaffold says so if it is
+  missing rather than accepting its licence on your behalf.
+
+  Two deliberate departures. `compileSdk` is not offered as a choice — it is
+  whatever this device's `aapt2` can read, which the SDK install records in
+  `jcode-compile-sdk.txt`; a higher one scaffolds perfectly and then fails every
+  build inside resource linking. And the recipe fixes `namespace` in
+  `app/build.gradle.kts` afterwards, because the definition's glob for that
+  replacement is `**/*.kt`, which does not match `.kts` — so it rewrites
+  `applicationId` and leaves `namespace` at `com.example.myapplication`, giving a
+  project whose R class lands in a package its own sources never import.
 - **Build helpers** — one-tap Gradle tasks and a project check, below.
 
 ## Building a project you cloned
@@ -147,17 +165,23 @@ one `entry.native` per extension: the **layout designer** (`designer/`) and the 
 (`vdevice/`), the container that runs a built APK inside JCode.
 
 ```sh
-npm run build     # runs native/gradlew assembleRelease and copies the APK into lib/
+npm run build     # runs native/gradlew assembleRelease and puts the three payloads in lib/
 ```
 
 or by hand:
 
 ```sh
-cd native && ./gradlew assembleRelease
-cp build/outputs/apk/release/*-release-unsigned.apk ../lib/android-pack.apk
+./gradlew assembleRelease
+cp native/designer/build/outputs/apk/release/*-release-unsigned.apk lib/designer.apk
+cp native/sdkmanager/build/outputs/apk/release/*-release-unsigned.apk lib/sdkmanager.apk
+cp native/vdevice/build/outputs/apk/release/*-release-unsigned.apk lib/vdevice.apk
 ```
 
-Unsigned is correct: JCode loads this APK with a `DexClassLoader` and never installs it, so
+`native/` holds the three module directories and nothing else — the Gradle root is the repository
+root, and the jars JCode is compiled against are in `build-libs/` (named apart from `lib/`, which is
+where the built archives go).
+
+Unsigned is correct: JCode loads these with a `DexClassLoader` and never installs them, so
 nothing checks its signature. What *is* checked is the signature on the `.jext` around it —
 an extension shipping native code is refused unless the package itself was officially signed.
 While working on the device that rule is a real cost, so JCode has one way past it:
@@ -171,7 +195,7 @@ nobody on a phone can run.
 
 ### The compileOnly jars in `native/libs/`
 
-`jcode-ext-api-abi8.jar`, `jcode-core-design.jar` and `jcode-core-distro.jar` are JCode's own
+`build-libs/jcode-ext-api-abi3.jar`, `jcode-core-design.jar` and `jcode-core-distro.jar` are JCode's own
 classes, and the pack compiles against them without bundling them: it resolves them from JCode at
 runtime, because it runs *inside* JCode's process and a second copy of Compose or of the design
 system would be the wrong one. Refresh them from the app repo when JCode's own move:

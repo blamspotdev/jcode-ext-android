@@ -10,6 +10,12 @@ import dev.blamspot.jcode.core.distro.adb.unsupportedService
 import java.io.File
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicInteger
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.launch
 
 /**
  * The adb services JCode's virtual device answers: everything an adb client asks of a device is
@@ -45,7 +51,7 @@ class VirtualDeviceAdbService(context: Context) : AdbServiceHandler {
             "ro.product.model" to VirtualIdentity.MODEL,
             "ro.product.brand" to BRAND,
             "ro.product.manufacturer" to BRAND,
-            "ro.serialno" to VirtualIdentity.SERIAL,
+            "ro.serialno" to VirtualDeviceSerial.of(appContext.filesDir),
             "ro.build.version.sdk" to Build.VERSION.SDK_INT.toString(),
             "ro.build.version.release" to Build.VERSION.RELEASE,
             "ro.build.version.codename" to Build.VERSION.CODENAME,
@@ -65,6 +71,14 @@ class VirtualDeviceAdbService(context: Context) : AdbServiceHandler {
             // it is a session rather than a command — see AdbSync.
             service == SYNC || service.startsWith("$SYNC:") ->
                 return AdbSync { path -> VirtualStorage.resolve(appContext, path) }.serve(stream)
+
+            // The device end of `adb forward`. Forwarding is the local adb *server's* job: it
+            // listens on the host port and, for each connection, opens this service on the device.
+            // So all the device owes is "connect me to <port>" — and this device's ports are the
+            // phone's, because the guest runs inside JCode's own process. A Dart VM service the
+            // guest opened on 127.0.0.1 is therefore a plain socket away, which is what lets
+            // `flutter run` attach and hot reload.
+            service.startsWith(TCP) -> return tcpProxy(service.removePrefix(TCP), stream)
 
             service.startsWith(SHELL) -> service.removePrefix(SHELL)
             service.startsWith(EXEC) -> service.removePrefix(EXEC)
@@ -100,7 +114,7 @@ class VirtualDeviceAdbService(context: Context) : AdbServiceHandler {
             "wm" -> stream.write(wm(args.drop(1)) ?: unsupportedService(stream.service))
             "input" -> stream.write(input(args.drop(1)))
             "ime" -> stream.write(ime(args.drop(1)))
-            "logcat" -> stream.write(logcat(args.drop(1)))
+            "logcat" -> logcat(args.drop(1), stream)
             "uiautomator" -> uiautomator(args.drop(1), stream)
             "screencap" -> screencap(args.drop(1), stream)
             "cmd" -> install(args, stream)
@@ -347,13 +361,103 @@ class VirtualDeviceAdbService(context: Context) : AdbServiceHandler {
      * because the reader that fills this log is already running and there is no second one to keep
      * open.
      */
-    private fun logcat(args: List<String>): String {
+    /**
+     * `adb logcat`, including the mode that matters most: **following**.
+     *
+     * It used to read the log once and return, which closes the stream — and that is `logcat -d`,
+     * not `logcat`. Anything waiting on a live log saw it end immediately. Measured with
+     * `flutter run`, which starts a reader and waits on it for the line where the Dart VM service
+     * announces its port: "Error waiting for a debug connection: The log reader stopped
+     * unexpectedly", every time, before the app was ever launched.
+     *
+     * Followed by polling the file rather than by a listener, because the log *is* a file and every
+     * writer already appends to it — a listener would be a second mechanism that the container's
+     * own crash handler and the `System.out` tee would have to remember to use.
+     */
+    private suspend fun logcat(args: List<String>, stream: AdbStream) {
         if (args.contains("-c") || args.contains("--clear")) {
             VirtualDeviceLog.clear(appContext)
-            return ""
+            // Written even though it is empty. Every other command answers with exactly one write,
+            // and a client waiting for one does not care that the answer is nothing -- it cares that
+            // the answer arrived. Measured: returning without writing left `flutter run` hanging on
+            // its first call, before it had built anything, with nothing on screen but "Launching".
+            stream.write("")
+            return
         }
+        // `-t` and `-T` are opposites and one letter apart. `-t N` prints the last N lines and
+        // *exits*; `-T N` starts N lines back and then *follows*. Treating `-t` as a follow is what
+        // `flutter run` hits first: it probes with `logcat -t 1`, which never returned, so the run
+        // stalled on its very first look at the device with nothing on screen but "Launching".
         val tail = args.zipWithNext().firstOrNull { it.first == "-t" }?.second?.toIntOrNull()
-        return VirtualDeviceLog.read(appContext, tail).ifEmpty { EMPTY_LOG }
+        val from = args.zipWithNext().firstOrNull { it.first == "-T" }?.second
+        val once = tail != null || args.contains("-d") || args.contains("--dump")
+        if (once) {
+            stream.write(VirtualDeviceLog.read(appContext, tail).ifEmpty { EMPTY_LOG })
+            return
+        }
+        // A follower that named a starting point wants what comes *after* it, not the whole file
+        // again. The point itself is not honoured -- these logs carry no timestamps a caller could
+        // have taken one from -- so the honest reading of "start here" is "start now".
+        val backlog = if (from != null) "" else VirtualDeviceLog.read(appContext, null)
+        // The backlog first, then everything after it. A follower that was handed the whole file
+        // again on its first poll would see every line twice. Written unconditionally for the reason
+        // the clear branch is: one write is how a command says it has begun.
+        stream.write(backlog)
+        var offset = VirtualDeviceLog.length(appContext)
+        while (currentCoroutineContext().isActive) {
+            delay(LOGCAT_POLL_MS)
+            val (fresh, next) = VirtualDeviceLog.readFrom(appContext, offset)
+            offset = next
+            if (fresh.isEmpty()) continue
+            // The write is what notices the reader has gone: there is no other signal that an adb
+            // client hung up, and a follower nobody is reading is a poll loop that never ends.
+            runCatching { stream.write(fresh) }.onFailure { return }
+        }
+    }
+
+    /**
+     * `tcp:<port>` — the device end of a forwarded port.
+     *
+     * The guest runs in JCode's own process on this phone, so a port the guest opened is a port on
+     * the phone's loopback: there is no tunnel to build, only a socket to open and two directions to
+     * copy. That is the whole of what `adb forward` needs from a device.
+     */
+    private suspend fun tcpProxy(portText: String, stream: AdbStream) {
+        val port = portText.substringBefore(';').trim().toIntOrNull()?.takeIf { it in 1..65535 }
+            ?: return stream.write("adb: not a port: \"$portText\"\n")
+        val socket = runCatching { java.net.Socket("127.0.0.1", port) }.getOrElse {
+            Log.w(TAG, "nothing is listening on 127.0.0.1:$port", it)
+            return stream.write("adb: cannot connect to 127.0.0.1:$port\n")
+        }
+        Log.i(TAG, "forwarding to 127.0.0.1:$port")
+        try {
+            coroutineScope {
+                // Device to client. This one decides when the session is over: the peer closing its
+                // end is what a forwarded connection finishing looks like.
+                val fromDevice = launch(Dispatchers.IO) {
+                    val buffer = ByteArray(FORWARD_BUFFER)
+                    val input = socket.getInputStream()
+                    while (isActive) {
+                        val read = runCatching { input.read(buffer) }.getOrDefault(-1)
+                        if (read <= 0) break
+                        stream.write(buffer.copyOf(read))
+                    }
+                }
+                // Client to device, cancelled with the session rather than waited on: a client that
+                // sends nothing more is not a client that has finished.
+                val toDevice = launch(Dispatchers.IO) {
+                    val output = socket.getOutputStream()
+                    while (isActive) {
+                        val chunk = stream.read() ?: break
+                        runCatching { output.write(chunk); output.flush() }.getOrElse { break }
+                    }
+                }
+                fromDevice.join()
+                toDevice.cancel()
+            }
+        } finally {
+            runCatching { socket.close() }
+        }
     }
 
     /** `wm size` / `wm density`, in the words real `wm` answers them. */
@@ -436,7 +540,11 @@ class VirtualDeviceAdbService(context: Context) : AdbServiceHandler {
                 stream.write("Success\n")
             }
 
-            else -> stream.write(unsupportedService(stream.service))
+            // `cmd package <verb>` is `pm <verb>` -- one binary behind two spellings, and the
+            // client picks which. `adb uninstall` sends this one, so answering only the install
+            // verbs here left `pm uninstall` working from a shell while `adb uninstall` failed on
+            // the same device, which reads as a device that refuses to remove an app.
+            else -> stream.write(pm(args.drop(2)) ?: unsupportedService(stream.service))
         }
     }
 
@@ -534,7 +642,7 @@ class VirtualDeviceAdbService(context: Context) : AdbServiceHandler {
     }
 
     /**
-     * `am start -n <pkg>/<activity>` and `am force-stop <pkg>`.
+     * `am start <pkg>/<activity>` and `am force-stop <pkg>`.
      *
      * The app opens on the device sandbox's screen in its editor tab, so whoever ran this — an agent
      * driving the terminal as much as the user — still has the IDE, and the terminal it typed into,
@@ -550,9 +658,14 @@ class VirtualDeviceAdbService(context: Context) : AdbServiceHandler {
             return ""
         }
         if (args.firstOrNull() != "start") return null
-        val component = args.zipWithNext().firstOrNull { it.first == "-n" }?.second ?: return null
+        val component = component(args.drop(1)) ?: return null
         val packageName = component.substringBefore('/')
         val activity = component.substringAfter('/', missingDelimiterValue = "")
+        // Said out loud, because this is the moment a launch either happens or does not and the log
+        // is the only place anybody can see which. It cost an afternoon once: `flutter run` sat on
+        // "Waiting for VM Service port to be available..." while the device's log said nothing at
+        // all, because nothing here had been asked to write a line.
+        VirtualDeviceLog.append(appContext, 'I', TAG, "am start $component")
         val apk = VirtualDeviceApps.apk(appContext, packageName)
             ?: return "Error: Package $packageName is not installed on the virtual device\n"
         val className = activity.takeIf { it.isNotEmpty() }?.let { qualify(it, packageName) }
@@ -564,6 +677,50 @@ class VirtualDeviceAdbService(context: Context) : AdbServiceHandler {
             onSuccess = { "Starting: Intent { cmp=$component }\n" },
             onFailure = { "Error: ${it.message}\n" },
         )
+    }
+
+    /**
+     * The `<pkg>/<activity>` an `am start` names, from wherever in its arguments it is.
+     *
+     * `-n` is one way to say it and the *trailing argument* is the other — `am start [OPTIONS]
+     * <INTENT>`, where the intent may end in a component, a package or a URI. Both are ordinary; the
+     * tools do not agree on which to use. `flutter run` uses the trailing form:
+     *
+     *     am start -a android.intent.action.MAIN -c android.intent.category.LAUNCHER -f 0x20000000
+     *              --ez enable-dart-profiling true … com.example.app/com.example.app.MainActivity
+     *
+     * and against a device that only read `-n` that was answered "unsupported", so the app was
+     * installed, never launched, and `flutter run` waited for a VM service that no app was ever
+     * asked to start. Nothing about it looked like a parsing bug from the outside.
+     *
+     * Finding the trailing argument means knowing which tokens are *values* — `-a` and `--ez` are
+     * followed by things that are not the component. Flags this does not know consume nothing, which
+     * is the safe way to be wrong: an unknown flag's value would have to look like a component to be
+     * mistaken for one.
+     *
+     * A bare package with no activity is allowed and means its launcher activity, which is what
+     * [AppSandbox.requestOpen] does with a null class.
+     */
+    private fun component(args: List<String>): String? {
+        var index = 0
+        while (index < args.size) {
+            val arg = args[index]
+            when {
+                arg == "-n" -> return args.getOrNull(index + 1)
+                // Extras are `--e? <key> <value>` (and `-e` is `--es`), except --esn, which is a
+                // key and a null.
+                arg == "--esn" -> index += 2
+                arg == "-e" || arg.startsWith("--e") -> index += 3
+                arg in VALUED_INTENT_FLAGS -> index += 2
+                arg.startsWith("-") -> index++
+                // The first thing that is not a flag and not a flag's value. A URI is not a
+                // component and this device cannot start one, so it is left to fail as unsupported
+                // rather than half-answered.
+                arg.contains("://") -> return null
+                else -> return arg
+            }
+        }
+        return null
     }
 
     /** The session behind a guest that is actually up; null is a device showing its launcher. */
@@ -647,9 +804,32 @@ class VirtualDeviceAdbService(context: Context) : AdbServiceHandler {
                 "what the container did plus anything the guest printed or crashed with)\n"
 
         private const val NOTHING_RUNNING =
-            "error: no app is running on the virtual device — `am start -n <pkg>/<activity>` first\n"
+            "error: no app is running on the virtual device — `am start <pkg>/<activity>` first\n"
 
         private const val DUMP_FILE = "window_dump.xml"
+
+        /**
+         * `am start` options that are followed by a value, so [component] knows what to skip.
+         *
+         * Intent options only, plus the `start` options that take one. Everything else `am` accepts
+         * is a bare switch, and a switch this list does not know consumes nothing — which is the
+         * harmless way to be wrong here.
+         */
+        private val VALUED_INTENT_FLAGS = setOf(
+            "-a", "-c", "-d", "-f", "-i", "-n", "-p", "-t",
+            "-R", "--user", "--display", "--sampling", "--start-profiler", "--attach-agent",
+            "--windowingMode", "--activityType", "--task-display-area-id",
+        )
+
+        private const val TCP = "tcp:"
+
+        /** How often a following `logcat` looks for new lines. Fast enough to feel live, slow
+         *  enough that a device nobody is logging on costs nothing. */
+        private const val LOGCAT_POLL_MS = 150L
+
+        /** One TCP read at a time. A forwarded Dart VM service moves small frames, not files. */
+        private const val FORWARD_BUFFER = 8 * 1024
+
         private const val SHELL = "shell:"
         private const val EXEC = "exec:"
         private const val SYNC = "sync"

@@ -10,6 +10,10 @@ terminals:
     command: |
       clear
       set -e
+      # Where the APK lands, so Run does not stop at building one. Without this marker the recipe
+      # produces build-output/app-debug.apk and ends there, and starting it is a separate errand
+      # through the device's own Install-an-app sheet — on a pack that ships the device.
+      # jcode-virtual-device: build-output
       export JAVA_HOME="\$(dirname "\$(dirname "\$(readlink -f "\$(command -v javac)")")")"
       # The SDK Manager installs as the jcode user, so the SDK may live in a different home.
       ANDROID_HOME="\$HOME/android-sdk"

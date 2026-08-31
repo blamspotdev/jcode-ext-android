@@ -13,7 +13,13 @@ description: Android XML + Gradle language support, a layout designer, the virtu
 # 'config' is not declared", which is a silent empty map on the reading side.
 api:
   minApiVersion: 1
-  capabilities: [config]
+  # `exec` is the Android SDK Manager's: `sdkmanager` is a real program in the Linux runtime and
+  # the only way to ask it what is installed, or to install anything, is to run it. It appears on
+  # the Permissions screen as "Run commands in the Linux runtime", which is exactly what it is.
+  # `workbench` is the New Project wizard's: it creates a project in the workspace and then opens
+  # it, and closes its own dialog afterwards. Without it those calls are refused and the wizard
+  # scaffolds a project it cannot show you — which is exactly what it did before this line existed.
+  capabilities: [config, exec, workbench]
 
 requires:
   # The Kotlin Dev Pack requires the Kotlin LSP itself, so Android gets it transitively. The Java
@@ -43,6 +49,14 @@ suggests:
 # while a preset's substitutions ({{projectDir}}, {{file}}/{{dir}}, {{fileN}}/{{dirN}}) all expand to
 # guest-absolute paths. The build tasks have neither problem, and {{projectDir}} is all they need.
 contributes:
+  # The Android SDK has a package manager of its own, and one "Android SDK · Installed" row in
+  # the Toolchains list can say nothing about what is inside it — which platforms are here, which
+  # are only half here, what revision each is at, and which of them this device could not build
+  # against even once installed. So this pack puts its own manager in that list, and draws it.
+  toolchainActions:
+    - id: sdkmanager
+      label: Android SDK Manager
+      icon: android
   runConfigPresets:
     - android-doctor
     - android-doctor-fix
@@ -75,18 +89,40 @@ images:
   samples: []
   walkthrough: []
 settings:
+  - key: runInVirtualDevice
+    label: Enable vDevice
+    type: bool
+    default: "false"
+    description: >-
+      Starts a built APK inside JCode rather than installing it, under a device identity with its own
+      storage. Also runs the device's adb. Install the app for real before trusting what you see.
+  - key: reconnectAdb
+    label: Reconnect vDevice
+    type: action
+    command: vdevice.reconnectAdb
+    button: Reconnect
+    # Nothing to reconnect while the device is off, and a button that runs and does nothing is
+    # worse than one that says it cannot.
+    enabledWhen: runInVirtualDevice
+    description: >-
+      Attach the device to the runtime's adb server again, for when `adb devices` stops listing it —
+      after `adb kill-server`, or a runtime restart.
   - key: defaultDeviceScreen
     label: Default vDevice screen size
     type: enum
-    default: fit
+    default: phone
     options: [fit, phone, phone-small, foldable, tablet]
     description: >-
-      Which screen the virtual device pretends to be when it opens. `fit` is the tab's own shape,
-      which is what the device did before there was anything to choose; the rest are real screens —
-      picking one rewrites the guest's DisplayMetrics and Configuration, so its resource qualifiers
-      reselect and an app laid out for a small phone genuinely reflows. The device's own control bar
-      switches between them for the session; this is where the session starts.
-
+      Which screen the device pretends to be when it opens. `fit` is the tab's own shape; the rest are
+      real screens, and picking one makes the guest's layout reflow for it.
+  - key: deviceSurface
+    label: vDevice opens
+    type: enum
+    default: tab
+    options: [tab, drawer]
+    description: >-
+      An editor tab, or the right drawer beside the editor. The drawer keeps the device in view while
+      you edit; only one of the two shows it at a time.
   - key: openLayoutsInDesigner
     label: Open layouts in the designer
     type: boolean
@@ -99,47 +135,84 @@ entry:
   manifest: extension.yaml
   ui: null
   libs: []
-  # The pack's native half: the layout designer AND the virtual device. Loaded on demand, into
-  # JCode's own process — see native/ for what it is and NativeExtensionLoader for how it gets in.
+  # The pack's native half: three archives, one per surface. Loaded on demand into JCode's own
+  # process -- see native/ for what they are and NativeExtensionLoader for how they get in.
+  #
+  # A list, not one entry. They were one archive until JCode's entry.native became a list, and it
+  # cost more than it looked: the `:guest` process loaded the designer and the SDK manager to reach
+  # the container, ConstraintLayout rode along for all three though only the designer inflates it,
+  # and `minSdk 33` was imposed by the container on two modules that do not need it.
   native:
-    # An APK, not the bare dex this used to be. The designer resolved no resources, so a dex was
-    # enough; the virtual device owns drawables, ids that `uiautomator dump` reports, and the
-    # device's own system apps as assets — all of which need a resource table, and a table needs an
-    # archive for JCode's addAssetPath to attach.
-    apk: lib/android-pack.apk
-    # One entry class for both, dispatching on the `view` param — JCode allows one native entry per
-    # extension, and this pack is not one screen.
-    class: dev.jcode.ext.android.AndroidPackExtension
-    # Loaded into the `:guest` process by JCode's GuestSessionService stub, which owns that process
-    # because `android:process` can only be declared in a manifest. Declaring this is also how JCode
-    # knows this pack provides the virtual device at all.
-    guest: dev.jcode.ext.android.vdevice.VirtualDeviceGuest
-    abi: 8
-    claims:
-      # A layout is decided by where it lives: AndroidManifest.xml is also XML and is not a layout.
-      #
-      # `opensInPreview` names the setting that governs it: a layout file *is* a layout before it is
-      # XML, so opening it as text and making the user find a menu is the wrong way round. Only this
-      # claim declares it — a Kotlin file is not primarily a composable, and a Dart or JSX file is
-      # mostly not UI at all.
-      - fileTypes: [xml]
-        pathContains: res/layout
-        opensInPreview: openLayoutsInDesigner
-        label: Show Designer
-        icon: image
-      # A composable cannot be told from any other Kotlin file by its path, so ask the file.
-      - fileTypes: [kt]
-        contains: "@Composable"
-        label: Show Designer
-        icon: image
-      # Flutter and React Native, drawn as an approximation and labelled as one: there is no Dart
-      # or JS runtime in JCode's process, so the canvas shows structure rather than a guess at
-      # pixels. Both are decided by content for the same reason Kotlin is.
-      - fileTypes: [dart]
-        contains: "Widget build("
-        label: Show Designer
-        icon: image
-      - fileTypes: [jsx, tsx]
-        contains: "return"
-        label: Show Designer
-        icon: image
+    # Its own library, its own dex, its own `res/` and `assets/` -- empty today, which is why the
+    # archive is mostly classes. An archive rather than a loose dex so that owning a drawable later
+    # is a file, not a packaging change.
+    #
+    # It declares no `views`; it is reached by its file claims.
+    - id: designer
+      apk: lib/designer.apk
+      class: dev.jcode.ext.android.designer.DesignerExtension
+      abi: 3
+      claims:
+        # A layout is decided by where it lives: AndroidManifest.xml is also XML and is not a layout.
+        #
+        # `opensInPreview` names the setting that governs it: a layout file *is* a layout before it is
+        # XML, so opening it as text and making the user find a menu is the wrong way round. Only this
+        # claim declares it -- a Kotlin file is not primarily a composable, and a Dart or JSX file is
+        # mostly not UI at all.
+        - fileTypes: [xml]
+          pathContains: res/layout
+          opensInPreview: openLayoutsInDesigner
+          label: Show Designer
+          icon: image
+        # A composable cannot be told from any other Kotlin file by its path, so ask the file.
+        - fileTypes: [kt]
+          contains: "@Composable"
+          label: Show Designer
+          icon: image
+        # Flutter and React Native, drawn as an approximation and labelled as one: there is no Dart
+        # or JS runtime in JCode's process, so the canvas shows structure rather than a guess at
+        # pixels. Both are decided by content for the same reason Kotlin is.
+        - fileTypes: [dart]
+          contains: "Widget build("
+          label: Show Designer
+          icon: image
+        - fileTypes: [jsx, tsx]
+          contains: "return"
+          label: Show Designer
+          icon: image
+    # The same shape: a table drawn entirely from JCode's own design system owns no drawable, no
+    # string and no id of its own today, and can own all three without anyone touching this file.
+    #
+    # Its `views` id is the same string as its contributes.toolchainActions id -- the workbench opens
+    # a contributed action by asking for the view named after it.
+    - id: sdkmanager
+      apk: lib/sdkmanager.apk
+      class: dev.jcode.ext.android.sdkmanager.SdkManagerExtension
+      abi: 3
+      views: [sdkmanager]
+    # The New Project wizard. Its own library for the same reason: a surface touched once per
+    # project has no business being re-dexed whenever the SDK manager changes.
+    #
+    # Its `views` id is what the android-app template's `gallery:` names. JCode's New Project dialog
+    # asks for the project's name, opens the view named there and steps aside; the name rides along
+    # after a colon (`newAndroidProject:MyApp`), so the route is the part in front of it.
+    - id: newproject
+      apk: lib/newproject.apk
+      class: dev.jcode.ext.android.newproject.NewProjectExtension
+      abi: 3
+      views: [newAndroidProject]
+    # An APK, and the only one that has to be. The status bar, quick-settings icons and permission
+    # prompt are real drawables, the ids its views carry are what `uiautomator dump` reports and an
+    # agent addresses, and the device's own system apps ride along as ~700 KB of assets. A dex
+    # carries none of that, and `addAssetPath` needs an archive to attach.
+    #
+    # `guest` is loaded into the `:guest` process by JCode's GuestSessionService stub, which owns
+    # that process because `android:process` can only be declared in a manifest. Declaring it is also
+    # how JCode knows this pack provides the virtual device at all -- and now which archive to load
+    # for it, which is the whole reason that process stopped carrying the other two.
+    - id: vdevice
+      apk: lib/vdevice.apk
+      class: dev.jcode.ext.android.vdevice.VirtualDeviceExtension
+      guest: dev.jcode.ext.android.vdevice.VirtualDeviceGuest
+      abi: 3
+      views: [device, hardware]

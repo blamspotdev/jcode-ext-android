@@ -1,4 +1,10 @@
 lib/
-native/build/
-native/.gradle/
 *.jext
+
+# Gradle's own working state and everything it generates. The archives are produced by `jext pack`
+# (npm run build); a checked-in build/ would just be a stale copy of them.
+.gradle/
+.kotlin/
+build/
+native/*/build/
+local.properties
