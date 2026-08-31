@@ -30,7 +30,6 @@ import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Keyboard
-import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.PhoneAndroid
 import androidx.compose.material.icons.rounded.RestartAlt
 import androidx.compose.material.icons.rounded.ScreenRotation
@@ -242,7 +241,6 @@ internal fun AppSandboxPage(
     // the same size would not be, and that is a change the guest has to be told about.
     // Whether the control bar is currently lying across the top of the tab, which is the one place
     // the device menu also wants. See [HomeChrome].
-    var controlsOverTop by remember { mutableStateOf(false) }
 
     val screenProfile by VirtualScreenOptions.profile
     LaunchedEffect(size, running, apkPath, surfaceView, screenProfile) {
@@ -315,7 +313,6 @@ internal fun AppSandboxPage(
             },
             onDismiss = { stop() },
             onInstall = { installOpen = true },
-            menuVisible = !controlsOverTop,
             modifier = Modifier.fillMaxSize(),
         )
 
@@ -418,7 +415,6 @@ internal fun AppSandboxPage(
             // the device — so with nothing running there is nothing for it to say.
             DeviceControls(
                 pane = pane,
-                onOverTop = { controlsOverTop = it },
                 caveat = (status as? SandboxStatus.Running)?.warning,
                 // The device's own keyboard, not the phone's. It is also the way out of the one
                 // bound the container has on noticing focus: a guest that moves it without any
@@ -521,7 +517,6 @@ private fun DeviceScreen(
     onDismiss: () -> Unit,
     onInstall: () -> Unit,
     /** False while the control bar is covering the corner the device menu lives in. */
-    menuVisible: Boolean,
     modifier: Modifier = Modifier,
 ) {
     // The surround is the EDITOR's background, not the device's wallpaper. It used to be the
@@ -624,12 +619,6 @@ private fun DeviceScreen(
         HomeChrome(
             onInstall = onInstall,
             onHardware = { SimulatedHardware.requestOpen() },
-            // Not while the control bar is lying across the top of the tab. Both want the same
-            // corner and the bar is `fillMaxWidth`, so it wins by being drawn second — measured with
-            // JCode itself in portrait, where the device fills the width and leaves no gutter: the
-            // menu was there while the bar was collapsed and gone the moment it came back, which
-            // left Install an app reachable only by waiting four seconds for the bar to time out.
-            visible = menuVisible,
             modifier = Modifier.fillMaxSize(),
         )
 
@@ -669,83 +658,71 @@ private fun DeviceScreen(
 private fun HomeChrome(
     onInstall: () -> Unit,
     onHardware: () -> Unit,
-    /** False while something else owns the corner this lives in — see the call site. */
-    visible: Boolean = true,
     modifier: Modifier = Modifier,
 ) {
-    var open by remember { mutableStateOf(false) }
-    // Not merely hidden: a menu left open under a bar that has just come back is a menu whose items
-    // cannot be reached and whose dismiss is somewhere else.
-    if (!visible) {
-        if (open) open = false
-        return
-    }
     Box(modifier = modifier) {
-        // One menu in the corner rather than two buttons in the tab.
+        // Buttons at the bottom, not a menu in the corner.
         //
-        // As buttons these had nowhere good to be. Laid out against the whole tab they came down
-        // across the device; moved into the gutter they were two lozenges floating in empty space;
-        // and when the device fills the width there is no gutter to move them into. A corner
-        // affordance has the same place to be whatever shape the device is, which is the point —
-        // it costs the device's own screen nothing and stops moving around.
+        // As a corner affordance these were one tap away from being seen at all, and they shared the
+        // status bar strip with the device's own wifi and signal icons -- which is why the strip had
+        // to be given up whenever the control bar came over the top of it. The bottom centre is the
+        // one place on a phone-shaped screen that no bar of ours and none of the device's own reach:
+        // the control bar is at the top, the device's navigation bar is below this, and the
+        // workbench's chrome pill is at the trailing corner.
         //
-        // The LEADING corner, not the trailing one. The device draws its own wifi and signal icons
-        // at the trailing end of its status bar, and this sat straight on top of them — the dots ran
-        // through the signal bars. The leading end is empty and stays empty: the device deliberately
-        // shows no clock there, because the phone's own clock is one bar above it.
-        //
-        // Sized to that bar rather than to a toolbar. [VirtualStatusBar.BAR_DP] is 22dp and the
-        // standard action is 34 plus padding, so the affordance did not fit the strip it sits on:
-        // two dots landed in the status bar and the third in the app underneath, in both
-        // orientations. It is the device's own chrome, so it takes the device's own scale — which
-        // costs a touch target smaller than 48dp, and that is the trade for not standing on the app.
-        Box(
+        // Shaped like the control bar because it *is* the same thing -- the IDE reaching onto the
+        // device -- and two pieces of one toolset should not look like two toolsets. Floating rather
+        // than full width so it costs the device's screen only what it occupies, which a bar spanning
+        // the width would not.
+        Surface(
             modifier = Modifier
-                .align(Alignment.TopStart)
-                .height(VirtualStatusBar.BAR_DP.dp)
-                .width(MENU_WIDTH)
-                .clickable { open = true },
-            contentAlignment = Alignment.Center,
+                .align(Alignment.BottomCenter)
+                // Above the device's own navigation bar, never on it: Back, Home and Recents are the
+                // device's, and a button of ours sitting on them is a button the guest cannot be
+                // tapped through.
+                .padding(bottom = VirtualNavigationBar.BAR_DP.dp + Space.sm),
+            shape = RoundedCornerShape(percent = 50),
+            // Flat `surface`, like the control bar, and for the same reason: M3 tonal elevation
+            // blends `primary` in, and JCode's primary is blue -- so the device's own chrome came out
+            // blue-tinted while every panel around it stayed neutral grey.
+            color = MaterialTheme.colorScheme.surface,
         ) {
-            Icon(
-                Icons.Rounded.MoreVert,
-                contentDescription = "Device menu",
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.size(MENU_ICON),
-            )
-            DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
-                DropdownMenuItem(
-                    text = { Text("Install an app") },
-                    leadingIcon = {
-                        Icon(
-                            Icons.Rounded.Add,
-                            contentDescription = null,
-                            modifier = Modifier.size(IconSize.md),
-                        )
-                    },
-                    onClick = {
-                        open = false
-                        onInstall()
-                    },
-                )
+            Row(
+                modifier = Modifier.padding(horizontal = Space.xxs, vertical = Space.xxs),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(Space.xxs),
+            ) {
+                ChromeAction(Icons.Rounded.Add, "Install an app", onInstall)
                 // Reachable with nothing running, because a route or an attitude is usually set up
                 // *before* the app that is meant to react to it is opened.
-                DropdownMenuItem(
-                    text = { Text("Hardware") },
-                    leadingIcon = {
-                        Icon(
-                            Icons.Rounded.Tune,
-                            contentDescription = null,
-                            modifier = Modifier.size(IconSize.md),
-                        )
-                    },
-                    onClick = {
-                        open = false
-                        onHardware()
-                    },
-                )
+                ChromeAction(Icons.Rounded.Tune, "Hardware", onHardware)
             }
         }
+    }
+}
+
+/** One of [HomeChrome]'s buttons: labelled, because unlike the control bar's there are only two. */
+@Composable
+private fun ChromeAction(icon: ImageVector, label: String, onClick: () -> Unit) {
+    Row(
+        modifier = Modifier
+            .clip(RoundedCornerShape(percent = 50))
+            .clickable(onClickLabel = label, onClick = onClick)
+            .padding(horizontal = Space.sm, vertical = Space.xs),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(Space.xs),
+    ) {
+        Icon(
+            icon,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.size(IconSize.md),
+        )
+        Text(
+            label,
+            style = MaterialTheme.typography.labelLarge,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
     }
 }
 
@@ -871,7 +848,6 @@ private fun ScreenFallback(
 private fun BoxScope.DeviceControls(
     pane: PaneLayout,
     /** Whether the bar is covering the top of the tab right now — see [HomeChrome]. */
-    onOverTop: (Boolean) -> Unit,
     caveat: String?,
     onKeyboard: () -> Unit,
     onInstall: () -> Unit,
@@ -885,7 +861,6 @@ private fun BoxScope.DeviceControls(
     var caveatOpen by remember { mutableStateOf(false) }
     if (pane.hasGutter) {
         // Beside the device, not over it, so nothing of the tab's own corner is covered.
-        LaunchedEffect(Unit) { onOverTop(false) }
         GutterControls(
             pane = pane,
             caveat = caveat,
@@ -902,8 +877,6 @@ private fun BoxScope.DeviceControls(
     }
 
     var expanded by remember { mutableStateOf(true) }
-    LaunchedEffect(expanded) { onOverTop(expanded) }
-    DisposableEffect(Unit) { onDispose { onOverTop(false) } }
     // The screen-options menu lives inside the bar's own composition, so collapsing the bar takes the
     // menu with it. Without this the bar timed out from under an open menu after four seconds and
     // every selection after that landed on the guest instead — the menu was gone before it was read.
@@ -1116,10 +1089,9 @@ private fun DeviceToolbar(
         // VirtualNavigationBar for why the toolbar was the wrong window for it.
         ScreenOptionsAction(onOpenChange = onScreenMenu)
         ToolbarAction(Icons.Rounded.Keyboard, "Keyboard", onKeyboard)
-        // Here as well as in the corner menu, because this bar is what covers that corner: with
-        // JCode in portrait the device fills the width, there is no gutter for the bar to move
-        // into, and it lies across the very place the menu lives. Hiding the menu under it (see
-        // HomeChrome) stops a button being invisible; this is what stops it being unreachable.
+        // Here as well as on the device's own bottom chrome: this bar is where every device
+        // control is, and a person who opened it should not have to close it again to find two
+        // of them somewhere else.
         ToolbarAction(Icons.Rounded.Add, "Install an app", onInstall)
         // The bench opens beside the device rather than over it, so the app being moved stays on
         // screen while it is being moved.
@@ -1211,8 +1183,6 @@ private fun ScreenOptionsAction(onOpenChange: (Boolean) -> Unit) {
 }
 
 /** The device-menu affordance, sized to [VirtualStatusBar.BAR_DP] rather than to a toolbar. */
-private val MENU_WIDTH = 30.dp
-private val MENU_ICON = 15.dp
 
 @Composable
 private fun ToolbarAction(
