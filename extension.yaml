@@ -90,30 +90,33 @@ images:
   walkthrough: []
 settings:
   - key: runInVirtualDevice
-    label: Run in a virtual device
+    label: Enable vDevice
     type: bool
     default: "false"
     description: >-
       Starts a built APK inside JCode rather than installing it, under a device identity with its own
       storage. Also runs the device's adb. Install the app for real before trusting what you see.
   - key: reconnectAdb
-    label: Reconnect adb
+    label: Reconnect vDevice
     type: action
     command: vdevice.reconnectAdb
     button: Reconnect
+    # Nothing to reconnect while the device is off, and a button that runs and does nothing is
+    # worse than one that says it cannot.
+    enabledWhen: runInVirtualDevice
     description: >-
       Attach the device to the runtime's adb server again, for when `adb devices` stops listing it —
       after `adb kill-server`, or a runtime restart.
   - key: defaultDeviceScreen
     label: Default vDevice screen size
     type: enum
-    default: fit
+    default: phone
     options: [fit, phone, phone-small, foldable, tablet]
     description: >-
       Which screen the device pretends to be when it opens. `fit` is the tab's own shape; the rest are
       real screens, and picking one makes the guest's layout reflow for it.
   - key: deviceSurface
-    label: Where the virtual device opens
+    label: vDevice opens
     type: enum
     default: tab
     options: [tab, drawer]
