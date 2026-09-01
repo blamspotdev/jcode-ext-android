@@ -46,6 +46,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import dev.blamspot.jcode.design.jcIcon
+import dev.blamspot.jcode.design.JCodeIcon
 import dev.blamspot.jcode.design.CompactFilledButton
 import dev.blamspot.jcode.design.CompactOutlinedButton
 import dev.blamspot.jcode.design.ManagerFilterChip
@@ -173,7 +175,7 @@ private fun Header(opened: VirtualHardware?, onBack: () -> Unit) {
         if (opened != null) {
             IconButton(onClick = onBack, modifier = Modifier.size(34.dp)) {
                 Icon(
-                    Icons.AutoMirrored.Rounded.ArrowBack,
+                    jcIcon(JCodeIcon.ArrowBack),
                     contentDescription = "Back to the device's hardware",
                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.size(19.dp),

@@ -43,6 +43,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import dev.blamspot.jcode.design.jcIcon
+import dev.blamspot.jcode.design.JCodeIcon
 import dev.blamspot.jcode.design.AlertDialog
 import dev.blamspot.jcode.design.CompactFilledButton
 import dev.blamspot.jcode.design.CompactOutlinedButton
@@ -752,7 +754,7 @@ private fun Header(refreshing: Boolean, canRefresh: Boolean, onRefresh: () -> Un
         else if (refreshing) CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
         else IconButton(onClick = onRefresh) {
             Icon(
-                imageVector = Icons.Rounded.Refresh,
+                painter = jcIcon(JCodeIcon.Refresh),
                 contentDescription = "Refresh",
                 modifier = Modifier.size(20.dp),
                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -815,8 +817,9 @@ private fun PackageTable(
                     ) {
                         if (row.expandable) {
                             Icon(
-                                imageVector = if (row.expanded) Icons.Rounded.ExpandMore
-                                else Icons.Rounded.ChevronRight,
+                                painter = jcIcon(
+                                    if (row.expanded) JCodeIcon.ChevronDown else JCodeIcon.ChevronRight,
+                                ),
                                 contentDescription = if (row.expanded) "Collapse" else "Expand",
                                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
                                 modifier = Modifier

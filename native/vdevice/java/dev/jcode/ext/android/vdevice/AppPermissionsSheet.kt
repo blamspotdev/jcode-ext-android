@@ -28,6 +28,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import dev.blamspot.jcode.design.jcIcon
+import dev.blamspot.jcode.design.JCodeIcon
 import dev.blamspot.jcode.design.CompactOutlinedButton
 import dev.blamspot.jcode.design.ManagerNoticeCard
 import dev.blamspot.jcode.design.ManagerSectionCard
@@ -97,7 +99,7 @@ internal fun AppPermissionsSheet(
                 }
                 IconButton(onClick = onClose, modifier = Modifier.size(34.dp)) {
                     Icon(
-                        Icons.Rounded.Close,
+                        jcIcon(JCodeIcon.Close),
                         contentDescription = "Close",
                         tint = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.size(19.dp),

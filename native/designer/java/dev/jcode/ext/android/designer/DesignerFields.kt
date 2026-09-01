@@ -33,6 +33,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.Alignment
+import dev.blamspot.jcode.design.jcIcon
+import dev.blamspot.jcode.design.JCodeIcon
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.text.font.FontFamily
@@ -94,7 +96,7 @@ internal fun InspectorField(
                 {
                     Box {
                         Icon(
-                            imageVector = Icons.Rounded.ArrowDropDown,
+                            painter = jcIcon(JCodeIcon.DropDown),
                             contentDescription = "Choose a value",
                             tint = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.size(18.dp).clickable { menu = true },
@@ -126,7 +128,7 @@ internal fun InspectorField(
         // that is already narrow, and two words would cost more width than the value they follow.
         if (dirty) {
             TinyIcon(Icons.Rounded.Check, "Apply", MaterialTheme.colorScheme.primary) { onCommit(value) }
-            TinyIcon(Icons.Rounded.Close, "Revert", MaterialTheme.colorScheme.onSurfaceVariant, onRevert)
+            TinyIcon(jcIcon(JCodeIcon.Close), "Revert", MaterialTheme.colorScheme.onSurfaceVariant, onRevert)
         }
     }
 }
@@ -145,7 +147,7 @@ internal fun InspectorSearchField(
             horizontalArrangement = Arrangement.spacedBy(6.dp),
         ) {
             Icon(
-                imageVector = Icons.Rounded.Search,
+                painter = jcIcon(JCodeIcon.Search),
                 contentDescription = null,
                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.size(15.dp),
@@ -238,6 +240,18 @@ private fun FieldText(
             cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
             modifier = Modifier.fillMaxWidth(),
         )
+    }
+}
+
+@Composable
+private fun TinyIcon(
+    icon: androidx.compose.ui.graphics.painter.Painter,
+    label: String,
+    tint: androidx.compose.ui.graphics.Color,
+    onClick: () -> Unit,
+) {
+    IconButton(onClick = onClick, modifier = Modifier.size(28.dp)) {
+        Icon(icon, contentDescription = label, tint = tint, modifier = Modifier.size(16.dp))
     }
 }
 

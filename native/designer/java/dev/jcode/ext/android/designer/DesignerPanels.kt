@@ -39,6 +39,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.graphics.Color
+import dev.blamspot.jcode.design.jcIcon
+import dev.blamspot.jcode.design.JCodeIcon
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.geometry.Rect
@@ -112,7 +114,7 @@ internal fun DesignerToolbar(
             if (bounds) "Hide bounds" else "Show bounds",
         ) { onBounds(!bounds) }
 
-        ToolIcon(Icons.Rounded.Remove, "Zoom out") { onZoom((effectiveZoom / STEP).coerceAtLeast(0.1f)) }
+        ToolIcon(jcIcon(JCodeIcon.Minus), "Zoom out") { onZoom((effectiveZoom / STEP).coerceAtLeast(0.1f)) }
         // The readout is the reset. A separate "fit to pane" icon beside it was a second control for
         // the one action, a few pixels apart.
         Text(
@@ -121,11 +123,11 @@ internal fun DesignerToolbar(
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.clickable { onZoom(null) }.padding(horizontal = 2.dp),
         )
-        ToolIcon(Icons.Rounded.Add, "Zoom in") { onZoom((effectiveZoom * STEP).coerceAtMost(3f)) }
+        ToolIcon(jcIcon(JCodeIcon.Add), "Zoom in") { onZoom((effectiveZoom * STEP).coerceAtMost(3f)) }
 
         // A native page replaces the editor, and the toggle that opened it lives in the editor's own
         // context menu — so this is the only way back to the file as text.
-        ToolIcon(Icons.Rounded.Code, "Edit as code", onClick = onShowSource)
+        ToolIcon(jcIcon(JCodeIcon.Code), "Edit as code", onClick = onShowSource)
 
         if (approximate) {
             Text(
@@ -150,8 +152,8 @@ internal fun DesignerToolbar(
 
         // At the end, past the status, because these act on the file rather than on the view: every
         // other control in this bar changes how the layout is *shown*, and these two change it.
-        ToolIcon(Icons.Rounded.Undo, "Undo", enabled = canUndo, onClick = onUndo)
-        ToolIcon(Icons.Rounded.Redo, "Redo", enabled = canRedo, onClick = onRedo)
+        ToolIcon(jcIcon(JCodeIcon.Undo), "Undo", enabled = canUndo, onClick = onUndo)
+        ToolIcon(jcIcon(JCodeIcon.Redo), "Redo", enabled = canRedo, onClick = onRedo)
     }
 }
 
@@ -162,6 +164,24 @@ internal fun DesignerToolbar(
  * gesture wherever you are.
  */
 private const val STEP = 1.25f
+
+@Composable
+private fun ToolIcon(
+    icon: androidx.compose.ui.graphics.painter.Painter,
+    label: String,
+    enabled: Boolean = true,
+    onClick: () -> Unit,
+) {
+    IconButton(onClick = onClick, enabled = enabled, modifier = Modifier.size(34.dp)) {
+        Icon(
+            painter = icon,
+            contentDescription = label,
+            modifier = Modifier.size(18.dp),
+            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                .copy(alpha = if (enabled) 1f else 0.35f),
+        )
+    }
+}
 
 @Composable
 private fun ToolIcon(
