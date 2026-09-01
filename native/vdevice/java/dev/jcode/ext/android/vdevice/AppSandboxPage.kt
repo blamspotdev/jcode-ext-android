@@ -37,6 +37,7 @@ import androidx.compose.material.icons.rounded.ScreenRotation
 import androidx.compose.material.icons.rounded.Stop
 import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.material.icons.rounded.Warning
+import dev.blamspot.jcode.design.jcIcon
 import dev.blamspot.jcode.design.AlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -718,7 +719,7 @@ private fun HomeChrome(
                         text = { Text("Install an app") },
                         leadingIcon = {
                             Icon(
-                                Icons.Rounded.Add,
+                                jcIcon(JCodeIcon.Add),
                                 contentDescription = null,
                                 modifier = Modifier.size(IconSize.md),
                             )
@@ -1034,9 +1035,9 @@ private fun BoxScope.GutterControls(
                         .padding(vertical = Space.xxs),
                     color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f),
                 )
-                ToolbarAction(Icons.Rounded.RestartAlt, "Restart app", onRestart)
+                ToolbarAction(jcIcon(JCodeIcon.Rerun), "Restart app", onRestart)
                 ToolbarAction(
-                    Icons.Rounded.Stop,
+                    jcIcon(JCodeIcon.Stop),
                     "Stop",
                     onStop,
                     tint = MaterialTheme.colorScheme.error,
@@ -1116,7 +1117,7 @@ private fun DeviceToolbar(
         // Here as well as on the device's own bottom chrome: this bar is where every device
         // control is, and a person who opened it should not have to close it again to find two
         // of them somewhere else.
-        ToolbarAction(Icons.Rounded.Add, "Install an app", onInstall)
+        ToolbarAction(jcIcon(JCodeIcon.Add), "Install an app", onInstall)
         // The bench opens beside the device rather than over it, so the app being moved stays on
         // screen while it is being moved.
         ToolbarAction(Icons.Rounded.Tune, "Device hardware", onHardware)
@@ -1132,7 +1133,7 @@ private fun DeviceToolbar(
         }
         Box(modifier = Modifier.weight(1f))
         ToolbarAction(Icons.Rounded.RestartAlt, "Restart app", onRestart)
-        ToolbarAction(Icons.Rounded.Stop, "Stop", onStop, tint = MaterialTheme.colorScheme.error)
+        ToolbarAction(jcIcon(JCodeIcon.Stop), "Stop", onStop, tint = MaterialTheme.colorScheme.error)
     }
 }
 
@@ -1189,7 +1190,7 @@ private fun ScreenOptionsAction(onOpenChange: (Boolean) -> Unit) {
                 text = { Text(if (rotated) "Portrait" else "Landscape") },
                 leadingIcon = {
                     Icon(
-                        Icons.Rounded.ScreenRotation,
+                        jcIcon(JCodeIcon.ScreenRotation),
                         contentDescription = null,
                         modifier = Modifier.size(IconSize.md),
                     )
@@ -1207,6 +1208,18 @@ private fun ScreenOptionsAction(onOpenChange: (Boolean) -> Unit) {
 }
 
 /** The device-menu affordance, sized to [VirtualStatusBar.BAR_DP] rather than to a toolbar. */
+
+@Composable
+private fun ToolbarAction(
+    icon: androidx.compose.ui.graphics.painter.Painter,
+    label: String,
+    onClick: () -> Unit,
+    tint: Color = MaterialTheme.colorScheme.onSurfaceVariant,
+) {
+    IconButton(onClick = onClick, modifier = Modifier.size(34.dp)) {
+        Icon(icon, contentDescription = label, tint = tint, modifier = Modifier.size(IconSize.lg))
+    }
+}
 
 @Composable
 private fun ToolbarAction(
@@ -1257,7 +1270,7 @@ private fun InstallSheet(
                 }
                 IconButton(onClick = onClose, modifier = Modifier.size(34.dp)) {
                     Icon(
-                        Icons.Rounded.Close,
+                        jcIcon(JCodeIcon.Close),
                         contentDescription = "Close",
                         tint = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.size(19.dp),

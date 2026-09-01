@@ -80,7 +80,7 @@ shortDescription: >-
 # JCode has its own device built in, does not implement extension API 8, and has no `:guest` stub to
 # load this pack's container into — so installing this there would replace a working device with
 # nothing. The floor is what refuses that.
-minJCodeVersion: 1.7.0
+minJCodeVersion: 1.7.3
 targetJCodeVersion: 1.7.0
 category: Languages
 subcategory: Android
