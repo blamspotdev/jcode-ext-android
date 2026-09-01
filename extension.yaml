@@ -1,7 +1,7 @@
 id: jcode.pack.android
 name: Android Dev Pack
 publisher: jcode
-version: 0.8.2
+version: 0.8.3
 type: language
 description: Android XML + Gradle language support, a layout designer, the virtual device, and an Android app template.
 
