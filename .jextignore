@@ -9,6 +9,9 @@
 # by base name at any depth and takes `languages/gradle/` with it, which ships a language pack short
 # of a language and says nothing about it.
 native
+# The device's own guests: sources for the APKs already bundled inside native/vdevice/assets, so
+# packaging them again would ship every one of them twice -- once as source, once built.
+/vdevice-apps
 build-libs
 /gradle
 /build
