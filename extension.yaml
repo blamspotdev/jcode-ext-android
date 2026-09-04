@@ -33,9 +33,19 @@ requires:
   # `flutter run` only through this client -- Google's platform-tools ship an x86_64-only adb that
   # cannot execute here. Without it the device still runs, and half of what makes it a *device* is
   # unreachable.
-  sdks: [adb]
+  #
+  # android-sdk is required for the same kind of reason: it is where Gradle, the platforms, the
+  # build-tools and this device's ARM-native aapt2 come from, so without it nothing this pack
+  # offers can build. A project detected as Android gets run configs that invoke `gradle` -- from
+  # JCode's own per-module detection as much as from this pack's build tasks -- and on a runtime
+  # without the toolchain every one of them ends at `gradle: command not found`, which names
+  # neither what is missing nor where to get it. Suggesting it left that gap open, because the
+  # install dialog listed the id and moved on.
+  #
+  # A required toolchain is still best-effort at install time -- JCode does not roll a pack back
+  # over a heavy or flaky download -- so this costs the SDK's download, not the pack itself.
+  sdks: [adb, android-sdk]
 suggests:
-  sdks: [android-sdk]
   dbg: [java-debug]
 
 # Build helpers, so a project that was cloned rather than scaffolded here is one tap from an APK.
