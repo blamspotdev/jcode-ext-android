@@ -211,7 +211,7 @@ private fun Rule(app: VirtualDeviceApp, permission: Declared, revision: Int) {
         label = permission.label,
         supporting = when {
             missing && rule == PermissionRule.Allow ->
-                "Allowed, but the device's ${hardware!!.label.lowercase()} is off — so it is refused."
+                "Allowed, but the device's ${hardware.label.lowercase()} is off — so it is refused."
             else -> permission.name
         },
         options = PermissionRule.entries.map { it.name },

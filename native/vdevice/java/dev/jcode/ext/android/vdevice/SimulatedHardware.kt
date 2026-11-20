@@ -338,7 +338,7 @@ internal object SimulatedHardware {
                 resting.copy(
                     pitch = settings.pitch + swing,
                     // The derivative of the swing: fastest as it passes through the middle.
-                    rateX = Math.toRadians((settings.amplitude * cos(phase)).toDouble()).toFloat() * rate,
+                    rateX = Math.toRadians(settings.amplitude * cos(phase)).toFloat() * rate,
                 ).plusShake(impulse)
             }
             // Turning clockwise — east, then south — is a *negative* rotation about the device's own

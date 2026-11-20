@@ -1,6 +1,5 @@
 plugins {
     id("com.android.application")
-    id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.plugin.compose")
 }
 
@@ -19,9 +18,9 @@ android {
     }
     sourceSets {
         getByName("main") {
-            java.srcDirs("java")
-            res.srcDirs("res")
-            assets.srcDirs("assets")
+            kotlin.directories += "java"
+            res.directories += "res"
+            assets.directories += "assets"
         }
     }
 }

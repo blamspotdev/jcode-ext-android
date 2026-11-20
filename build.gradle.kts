@@ -1,7 +1,18 @@
+buildscript {
+    repositories {
+        mavenCentral()
+    }
+    dependencies {
+        // AGP 9 compiles Kotlin itself, and depends on an older Kotlin Gradle plugin than this one. A
+        // newer one goes on the build classpath, which is how AGP documents it: nothing applies
+        // `org.jetbrains.kotlin.android` any more, because AGP 9 refuses to have it applied.
+        classpath("org.jetbrains.kotlin:kotlin-gradle-plugin:2.4.21")
+    }
+}
+
 plugins {
-    id("com.android.application") version "8.13.0" apply false
-    id("org.jetbrains.kotlin.android") version "2.2.20" apply false
-    id("org.jetbrains.kotlin.plugin.compose") version "2.2.20" apply false
+    id("com.android.application") version "9.5.1" apply false
+    id("org.jetbrains.kotlin.plugin.compose") version "2.4.21" apply false
 }
 
 /**
@@ -26,6 +37,9 @@ plugins {
  * ship may be bundled -- and must be, since nothing else will provide it. Three class loaders change
  * nothing here: all three parent on JCode's, so they share one Compose.
  *
+ * Each module keeps its Kotlin under `java/` and declares that directory on the `kotlin` source set,
+ * not the `java` one: a Kotlin directory on `java` is one AGP 9's built-in Kotlin does not support.
+ *
  * `targetSdk` is deliberately absent everywhere. The container is coupled to one -- the hidden
  * members it is built on are greylisted at 33 and would be denied at a higher one -- but these
  * archives are never installed as apps, so the `targetSdk` that governs the process is **JCode's**.
@@ -36,7 +50,7 @@ subprojects {
     // that has no `compileOnly` configuration to add to, which is a "Configuration with name
     // 'compileOnly' not found" at configuration time rather than anything about this pack.
     plugins.withId("com.android.application") {
-        extensions.configure<com.android.build.gradle.internal.dsl.BaseAppModuleExtension>("android") {
+        extensions.configure<com.android.build.api.dsl.ApplicationExtension>("android") {
             compileSdk = 36
 
             defaultConfig {
@@ -57,6 +71,17 @@ subprojects {
             }
 
             buildFeatures.compose = true
+        }
+
+        extensions.configure<org.jetbrains.kotlin.gradle.dsl.KotlinAndroidExtension>("kotlin") {
+            jvmToolchain(21)
+            compilerOptions {
+                // The standard library these archives run against is JCode's, not this build's: they
+                // load into JCode's process, which resolves `kotlin.*` from its own copy first. So the
+                // compiler may only call what JCode's Kotlin has -- the rule the compileOnly pins below
+                // follow, applied to the standard library. Raise it when JCode's Kotlin moves.
+                apiVersion = org.jetbrains.kotlin.gradle.dsl.KotlinVersion.KOTLIN_2_2
+            }
         }
 
         // Pinned to what JCode actually RESOLVES, not to the BOM it declares. Those differ: JCode's
@@ -83,12 +108,6 @@ subprojects {
             add("compileOnly", "androidx.compose.material:material-icons-extended:1.7.6")
             add("compileOnly", "androidx.core:core-ktx:1.15.0")
             add("compileOnly", "org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.1")
-        }
-    }
-
-    plugins.withId("org.jetbrains.kotlin.android") {
-        extensions.configure<org.jetbrains.kotlin.gradle.dsl.KotlinAndroidProjectExtension>("kotlin") {
-            jvmToolchain(21)
         }
     }
 }
