@@ -22,7 +22,10 @@ inputs:
   - id: minSdk
     label: Minimum SDK
     type: select
-    options: ["21", "23", "24", "26", "28", "29", "30", "31", "33", "34"]
+    # 24 is the floor every entry builds at: the SDK's own template needs 23 (activity 1.13) and the
+    # Navigation ones 24 (navigation 2.10). Anything lower fails in manifest merging, not here.
+    # Keep in step with Config.MIN_SDKS in native/newproject.
+    options: ["24", "26", "28", "29", "30", "31", "33", "34"]
     default: "24"
 # Compile SDK is deliberately not a choice any more. It is whatever this device's aapt2 can actually
 # read, which the Android SDK install works out and records in jcode-compile-sdk.txt — a higher one

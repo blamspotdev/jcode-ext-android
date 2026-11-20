@@ -56,8 +56,11 @@ def clear_sources(project: Path) -> None:
     Tests included: they are Compose tests, and a variant that is not Compose cannot compile them.
     The resources are left alone -- the icons, the backup rules and `strings.xml` (which carries the
     project's own name) are the scaffold's, not the template's.
+
+    `kotlin/` as well as `java/`: the SDK's template package 0.1.3 keeps its sources under
+    `kotlin/`, and a Compose `MainActivity` left there beside the variant's cannot compile.
     """
-    for relative in ("app/src/main/java", "app/src/test", "app/src/androidTest"):
+    for relative in ("app/src/main/java", "app/src/main/kotlin", "app/src/test", "app/src/androidTest"):
         target = project / relative
         if target.exists():
             shutil.rmtree(target)
