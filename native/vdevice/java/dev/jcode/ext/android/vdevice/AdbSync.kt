@@ -49,9 +49,9 @@ internal class AdbSync(private val resolve: (String) -> File?) {
         val exists = file != null && file.exists()
         stream.write(
             frame(STAT) {
-                putInt(if (exists) modeOf(file!!) else 0)
-                putInt(if (exists && file!!.isFile) file.length().toInt() else 0)
-                putInt(if (exists) (file!!.lastModified() / 1000L).toInt() else 0)
+                putInt(if (exists) modeOf(file) else 0)
+                putInt(if (exists && file.isFile) file.length().toInt() else 0)
+                putInt(if (exists) (file.lastModified() / 1000L).toInt() else 0)
             },
         )
     }

@@ -1,6 +1,5 @@
 plugins {
     id("com.android.application")
-    id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.plugin.compose")
 }
 
@@ -26,11 +25,11 @@ android {
     }
     sourceSets {
         getByName("main") {
-            java.srcDirs("java")
-            res.srcDirs("res")
-            assets.srcDirs("assets")
+            kotlin.directories += "java"
+            res.directories += "res"
+            assets.directories += "assets"
         }
-        getByName("test") { java.srcDirs("test/java") }
+        getByName("test") { kotlin.directories += "test/java" }
     }
 }
 
@@ -39,10 +38,14 @@ dependencies {
     // and is what lets the canvas inflate a real ConstraintLayout instead of drawing a box that
     // looks like one. Bundled HERE only: the container and the SDK manager never inflate a View, and
     // carrying this for them was one of the costs of a single archive. androidx.core / appcompat are
-    // excluded deliberately: they ARE in JCode, and a second copy is the duplicate-R hazard.
-    implementation("androidx.constraintlayout:constraintlayout:2.1.4") {
+    // excluded deliberately: they ARE in JCode, and a second copy is the duplicate-R hazard. So are
+    // profileinstaller and annotation, which ConstraintLayout pulls in from 2.2 on and JCode already
+    // has.
+    implementation("androidx.constraintlayout:constraintlayout:2.2.2") {
         exclude(group = "androidx.appcompat")
         exclude(group = "androidx.core")
+        exclude(group = "androidx.profileinstaller")
+        exclude(group = "androidx.annotation")
     }
     compileOnly("androidx.appcompat:appcompat:1.7.0")
 
@@ -52,7 +55,10 @@ dependencies {
     // `compileOnly` does not reach the test compile classpath, and the Compose compiler plugin
     // refuses to run without the runtime in front of it -- so the same set is repeated here. These
     // are test-only and never enter the archive, so the ABI rule is not weakened by them.
-    testImplementation(kotlin("test"))
+    //
+    // The JUnit flavour of kotlin-test is named outright: the Kotlin plugin used to infer it from the
+    // test task, and AGP's built-in Kotlin does not, which leaves `kotlin.test.Test` unresolved.
+    testImplementation(kotlin("test-junit"))
     testImplementation(rootProject.files("build-libs/jcode-ext-api-abi3.jar"))
     testImplementation("androidx.compose.runtime:runtime:1.9.0")
     testImplementation("androidx.compose.ui:ui:1.9.0")

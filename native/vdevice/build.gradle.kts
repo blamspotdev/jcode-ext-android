@@ -1,6 +1,5 @@
 plugins {
     id("com.android.application")
-    id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.plugin.compose")
 }
 
@@ -27,10 +26,10 @@ android {
     }
     sourceSets {
         getByName("main") {
-            java.srcDirs("java")
-            aidl.srcDirs("aidl")
-            res.srcDirs("res")
-            assets.srcDirs("assets")
+            kotlin.directories += "java"
+            aidl.directories += "aidl"
+            res.directories += "res"
+            assets.directories += "assets"
         }
     }
     // The wire between the pack's IDE half and its `:guest` half. Both ends are this module's, so the

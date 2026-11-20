@@ -29,7 +29,12 @@ internal data class Config(
     companion object {
         /** Two or more dot-separated segments, each starting with a letter — what AGP will accept. */
         val APPLICATION_ID = Regex("""[a-zA-Z][A-Za-z0-9_]*(\.[a-zA-Z][A-Za-z0-9_]*)+""")
-        val MIN_SDKS = listOf("21", "23", "24", "26", "28", "29", "30", "31", "33", "34")
+        /**
+         * 24 is the floor every entry builds at: the SDK's own template needs 23 (activity 1.13) and
+         * the Navigation ones 24 (navigation 2.10). Lower fails in manifest merging. Kept in step with
+         * the `minSdk` options in templates/android-app/template.yaml.
+         */
+        val MIN_SDKS = listOf("24", "26", "28", "29", "30", "31", "33", "34")
     }
 }
 
