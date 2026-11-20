@@ -14,49 +14,51 @@ keywords: [
 ]
 types: []
 formatter: { indent: 4, trimTrailingWhitespace: true, insertFinalNewline: true }
+# What these insert is written for AGP 9 on Gradle 9, the toolchain this device builds with:
+#  * `prop = value`, not `prop value` -- Gradle 9 deprecates the space form and Gradle 10 removes it.
+#  * SDK 36: the highest this device's ARM aapt2 links against, and the lowest core-ktx 1.18 accepts.
+#  * No `kotlinOptions`. AGP 9 compiles Kotlin itself and rejects that block ("Could not find method
+#    kotlinOptions()"); Kotlin's jvmTarget follows compileOptions.targetCompatibility instead.
 completions:
   - { label: dependencies, detail: dependencies block, insert: "dependencies {\n    implementation(\"$1\")\n}" }
-  - { label: android, detail: android block, insert: "android {\n    namespace \"$1\"\n    compileSdk 34\n\n    defaultConfig {\n        applicationId \"$2\"\n        minSdk 24\n        targetSdk 34\n        versionCode 1\n        versionName \"1.0\"\n    }\n    $0\n}" }
+  - { label: android, detail: android block, insert: "android {\n    namespace = \"$1\"\n    compileSdk = 36\n\n    defaultConfig {\n        applicationId = \"$2\"\n        minSdk = 24\n        targetSdk = 36\n        versionCode = 1\n        versionName = \"1.0\"\n    }\n    $0\n}" }
   - { label: plugins, detail: plugins block, insert: "plugins {\n    id(\"$1\")\n}" }
   - { label: implementation, detail: implementation dependency, insert: "implementation(\"$0\")" }
-  - { label: defaultConfig, detail: defaultConfig block, insert: "defaultConfig {\n    applicationId \"$1\"\n    minSdk 24\n    targetSdk 34\n    versionCode 1\n    versionName \"1.0\"\n    $0\n}" }
+  - { label: defaultConfig, detail: defaultConfig block, insert: "defaultConfig {\n    applicationId = \"$1\"\n    minSdk = 24\n    targetSdk = 36\n    versionCode = 1\n    versionName = \"1.0\"\n    $0\n}" }
 helpers:
   - title: android { } skeleton
     snippet: |
       android {
-          namespace "$1"
-          compileSdk 34
+          namespace = "$1"
+          compileSdk = 36
 
           defaultConfig {
-              applicationId "$2"
-              minSdk 24
-              targetSdk 34
-              versionCode 1
-              versionName "1.0"
+              applicationId = "$2"
+              minSdk = 24
+              targetSdk = 36
+              versionCode = 1
+              versionName = "1.0"
           }
 
           buildTypes {
               release {
-                  minifyEnabled false
+                  minifyEnabled = false
               }
           }
 
           compileOptions {
-              sourceCompatibility JavaVersion.VERSION_17
-              targetCompatibility JavaVersion.VERSION_17
-          }
-
-          kotlinOptions {
-              jvmTarget = "17"
+              sourceCompatibility = JavaVersion.VERSION_17
+              targetCompatibility = JavaVersion.VERSION_17
           }
       }
+  # The versions the android-app template scaffolds today; keep the two in step.
   - title: dependencies { } block
     snippet: |
       dependencies {
-          implementation "androidx.core:core-ktx:1.13.1"
-          implementation "androidx.appcompat:appcompat:1.7.0"
-          implementation "com.google.android.material:material:1.12.0"
-          implementation "androidx.constraintlayout:constraintlayout:2.1.4"
+          implementation "androidx.core:core-ktx:1.18.0"
+          implementation "androidx.appcompat:appcompat:1.8.0"
+          implementation "com.google.android.material:material:1.14.0"
+          implementation "androidx.constraintlayout:constraintlayout:2.2.2"
           $0
       }
   # Reminders for the build/test loop, as // comments so they drop into a build script
