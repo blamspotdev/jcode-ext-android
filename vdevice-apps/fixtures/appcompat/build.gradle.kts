@@ -1,3 +1,14 @@
+buildscript {
+    repositories {
+        mavenCentral()
+    }
+    dependencies {
+        // The pack's Kotlin rather than AGP's own 2.2.10, which trips Gradle 9's deprecation of
+        // Configuration.setVisible on every build.
+        classpath("org.jetbrains.kotlin:kotlin-gradle-plugin:2.4.21")
+    }
+}
+
 plugins {
     id("com.android.application") version "9.5.1"
 }
